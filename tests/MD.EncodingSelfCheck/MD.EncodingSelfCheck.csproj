@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    编码往返自检。只链接 MD 项目里两个「零 UI 依赖」的文件
+    （Markdown/TextEncodingDetector.cs 与 Markdown/TextFileFormat.cs），
+    这样可以用普通控制台工程直接跑到真实实现，而不是复刻一份逻辑。
+    这正是项目坚持 Models/ 与 Markdown/ 不依赖 UI 框架的价值所在。
+
+    运行方式见 docs/README.md「六、构建与运行」。
+    期望：通过 73，失败 0（失败时进程退出码为 1）
+    注意：主项目是 MAUI 单目标 Windows，这个自检是纯 net10.0 控制台，
+          不参与发布，也不被 MD.csproj 引用。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>MD.EncodingSelfCheck</AssemblyName>
+    <RootNamespace>MD.EncodingSelfCheck</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- 自检工程不进任何发布产物，也不受单文件设置影响 -->
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+
+  <!--
+    被链接的两个源文件路径要兼容两种仓库布局（用 Exists 条件自动选，不维护两份）：
+      标准布局（本地开发目录）：  src/MD/Markdown/…  →  ../../src/MD/Markdown/…
+      扁平布局（GitHub 仓库根）：  Markdown/…          →  ../../Markdown/…
+  -->
+  <PropertyGroup>
+    <MdSourceDir Condition="Exists('$(MSBuildThisFileDirectory)../../src/MD/Markdown/TextEncodingDetector.cs')">$(MSBuildThisFileDirectory)../../src/MD/</MdSourceDir>
+    <MdSourceDir Condition="'$(MdSourceDir)'==''">$(MSBuildThisFileDirectory)../../</MdSourceDir>
+  </PropertyGroup>
+
+  <Target Name="MdCheckSourceFiles" BeforeTargets="BeforeCompile">
+    <Error Condition="!Exists('$(MdSourceDir)Markdown/TextEncodingDetector.cs')"
+           Text="找不到 $(MdSourceDir)Markdown/TextEncodingDetector.cs，请确认从项目根或仓库根运行。" />
+    <Error Condition="!Exists('$(MdSourceDir)Markdown/TextFileFormat.cs')"
+           Text="找不到 $(MdSourceDir)Markdown/TextFileFormat.cs，请确认从项目根或仓库根运行。" />
+  </Target>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="$(MdSourceDir)Markdown/TextEncodingDetector.cs" Link="Markdown/TextEncodingDetector.cs" />
+    <Compile Include="$(MdSourceDir)Markdown/TextFileFormat.cs" Link="Markdown/TextFileFormat.cs" />
+  </ItemGroup>
+
+</Project>

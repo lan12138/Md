@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="MD.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/MD.EncodingSelfCheck/MD.EncodingSelfCheck.csproj" />
+  </Folder>
+</Solution>

@@ -79,6 +79,26 @@
     <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
 
+  <!--
+    ★ 兼容「扁平布局」的防御性排除 ★
+
+    本工程在本地的开发目录是 src/MD/，但 GitHub 仓库
+    （https://github.com/lan12138/Md）里是把本文件直接放在仓库根的扁平布局。
+    那种布局下，SDK 默认的 **/*.cs 通配会把 tests/ 下的自检源码
+    以及它自己的 obj/ 生成文件（MD.EncodingSelfCheck.AssemblyInfo.cs）一并吃进来，
+    于是和本工程生成的 MD.AssemblyInfo.cs 撞车，报 CS0579「特性重复」。
+
+    排除条目在标准布局（src/MD/）下不匹配任何文件，属于空操作，
+    因此两种布局共用同一份工程文件，不需要维护两个版本。
+  -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+    <Page Remove="tests/**" />
+    <MauiXaml Remove="tests/**" />
+    <EmbeddedResource Remove="tests/**" />
+  </ItemGroup>
+
   <!-- 图标与启动图（矢量 SVG，由 MAUI Resizetizer 生成各平台尺寸） -->
   <ItemGroup>
     <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#4F46E5" />
