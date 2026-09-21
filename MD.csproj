@@ -1,0 +1,95 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      交付目标：**只有 Windows**。
+
+      Android 目标已停用 —— 手机端支持 Markdown 的应用已经足够多，自研没有价值。
+      Platforms/Android 清单与 build/publish-android.ps1 都保留着，需要时把下面
+      第一行的注释换回多目标写法即可恢复（.NET 10 的 net10.0-android 需要
+      Android SDK 的 platforms/android-36，参考 docs/PLATFORMS.md）。
+
+      macOS(Mac Catalyst) 同理，且必须在 macOS 上构建。
+    -->
+    <!--
+      注意这里是**单数** TargetFramework：只面向一个框架时必须用单数，
+      否则 MSBuild 仍按「多目标」处理，dotnet publish 会报
+      NETSDK1129（必须显式指定 -f）。
+      恢复多平台时把它改回复数的 TargetFrameworks 即可，例如：
+        <TargetFrameworks>net10.0-windows10.0.19041.0;net10.0-android</TargetFrameworks>
+    -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+
+    <OutputType>Exe</OutputType>
+    <RootNamespace>MD</RootNamespace>
+    <AssemblyName>MD</AssemblyName>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+
+    <!-- 应用信息 -->
+    <ApplicationTitle>MD</ApplicationTitle>
+    <ApplicationId>cn.md.reader</ApplicationId>
+    <ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <NeutralLanguage>zh-CN</NeutralLanguage>
+
+    <!-- Windows：非打包（unpackaged）模式，便于直接以 exe 运行 -->
+    <WindowsPackageType>None</WindowsPackageType>
+
+    <!-- Android：发布 APK 而不是 AAB，便于侧载安装 -->
+    <AndroidPackageFormat Condition="'$(TargetFramework)'=='net10.0-android' and '$(Configuration)'=='Release'">apk</AndroidPackageFormat>
+    <AndroidLinkMode Condition="'$(TargetFramework)'=='net10.0-android' and '$(Configuration)'=='Release'">SdkOnly</AndroidLinkMode>
+
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+  </PropertyGroup>
+
+  <!--
+    Windows 单文件自包含发布。
+    说明：MAUI 的 Windows 端依赖 Windows App SDK，走「自包含」才能得到
+    「双击即用、无需装运行时」的单个 exe。代价是产物较大（约 150~250 MB），
+    这是 WinUI 的原生依赖决定的；若接受用户预装 Windows App SDK 运行时，
+    可改用脚本里的 framework-dependent 模式，产物会小到十几 MB。
+  -->
+  <PropertyGroup Condition="'$(TargetFramework)'=='net10.0-windows10.0.19041.0' and '$(Configuration)'=='Release'">
+    <!--
+      ⚠ 不要用命令行的 RID 参数（-r）和自带运行时开关（「双横线 self-contained」）
+      来指定 Windows 的发布方式：它们是「全局」MSBuild 属性，会同时作用到
+      Android 目标上，使 Android 去还原 Microsoft.NETCore.App.Runtime.Mono.win-x64
+      并报 NU1102。这里用一个自定义属性 MdWindowsRuntime 承接，只在本 TFM 内生效：
+        dotnet publish ... -p:MdWindowsRuntime=win-arm64
+    -->
+    <RuntimeIdentifier Condition="'$(MdWindowsRuntime)'!=''">$(MdWindowsRuntime)</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)'==''">win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+  </PropertyGroup>
+
+  <!-- 图标与启动图（矢量 SVG，由 MAUI Resizetizer 生成各平台尺寸） -->
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#4F46E5" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#4F46E5" BaseSize="128,128" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="Markdig" Version="0.41.3" />
+    <!-- GB18030 / GBK 等中文代码页由 .NET 10 基础类库自带（System.Text.Encoding.CodePages
+         已内置于共享框架），因此无需显式引用 NuGet 包。 -->
+  </ItemGroup>
+
+</Project>
