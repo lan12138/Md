@@ -1,0 +1,50 @@
+# -----------------------------------------------------------------------------
+#  MD - 跨平台 Markdown 阅读器 · Git 忽略规则
+#
+#  只忽略「构建产生的、可再生成的」东西。源码、文档、脚本一律进仓库。
+#  运行时的个性化设置与日志写在 %APPDATA%\MD\（用户配置目录），
+#  不在仓库范围内，因此这里无需处理。
+# -----------------------------------------------------------------------------
+
+# ---- .NET / MSBuild 构建产物 ----
+bin/
+obj/
+artifacts/
+*.binlog
+*.log
+
+# ---- 本项目发布产物（单文件 exe 约 71.8 MB，绝不进仓库）----
+dist/
+
+# ---- 安装包 / 移动端产物 ----
+*.apk
+*.aab
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.ipa
+
+# ---- Visual Studio / Rider ----
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+
+# ---- VS Code（保留 tasks/launch 的话把这两行删掉）----
+.vscode/
+
+# ---- 编辑器临时文件 ----
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+
+# ---- 操作系统 ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
