@@ -616,14 +616,19 @@ public sealed class SidebarView : Grid
 
         if (_tab == 0 && node is not null)
         {
-            try
+            // 延后到下一 tick：滚动正文触发的 Scrolled 里同步滚大纲列表，
+            // 会把正在处理点击的大纲行回收掉（同样可能原生闪退）。
+            Dispatcher.Dispatch(() =>
             {
-                _outlineList.ScrollTo(node, position: ScrollToPosition.MakeVisible, animate: false);
-            }
-            catch
-            {
-                // 列表尚未完成布局时可能抛异常，忽略即可
-            }
+                try
+                {
+                    _outlineList.ScrollTo(node, position: ScrollToPosition.MakeVisible, animate: false);
+                }
+                catch
+                {
+                    // 列表尚未完成布局时可能抛异常，忽略即可
+                }
+            });
         }
     }
 }
@@ -663,7 +668,10 @@ internal sealed class SidebarItemHost : ContentView
             {
                 var row = new OutlineRow(node, _ctx);
                 var tap = new TapGestureRecognizer();
-                tap.Tapped += (_, _) => _sidebar.RaiseOutlineSelected(node);
+                // 先结束 Tapped 事件，再切正文；否则正文滚动会立刻回收
+                // 当前大纲行，WinUI 可能在事件栈里访问已销毁元素而闪退。
+                tap.Tapped += (_, _) => _sidebar.Dispatcher.Dispatch(
+                    () => _sidebar.RaiseOutlineSelected(node));
                 row.GestureRecognizers.Add(tap);
                 Content = row;
                 _onOutlineRow?.Invoke(row);

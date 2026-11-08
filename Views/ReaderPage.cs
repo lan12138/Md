@@ -132,7 +132,11 @@ public sealed class ReaderPage : ContentPage
 
         // ---------------- 侧栏 ----------------
         _sidebar = new SidebarView(_ctx);
-        _sidebar.OutlineSelected += node => ScrollToBlock(node.BlockIndex);
+        // 大纲点击先让 Tapped 事件完整结束，再滚动正文。
+        // 直接在同一次事件里滚动会让 CollectionView 立刻回收/重建大纲行，
+        // 在 WinUI 上可能触发 0x8000FFFF（E_UNEXPECTED）原生崩溃。
+        _sidebar.OutlineSelected += node =>
+            Dispatcher.Dispatch(() => ScrollToBlock(node.BlockIndex, animate: false));
         _sidebar.RecentSelected += path => OpenFileAsync(path);
         _sidebar.FileSelected += path => OpenFileAsync(path);
         _sidebar.FolderToggled += node => _sidebar.ToggleFolder(node);
@@ -539,10 +543,24 @@ public sealed class ReaderPage : ContentPage
 
     private void ApplyContentWidth()
     {
-        // 0 表示不限制（铺满）；否则给一个上限，让正文居中
+        // 0 表示不限制（铺满）；否则给一个固定列宽，让正文居中。
+        // 这里同时写 WidthRequest：只设 MaximumWidthRequest 时，某些主题的
+        // auto 列宽（如 Whitey 760→1178）在 WinUI 上会把 CollectionView 量成空白。
         var width = _ctx.ContentWidth;
-        _blocks.MaximumWidthRequest = width > 40 ? width : 100000;
-        _editor.MaximumWidthRequest = width > 40 ? width : 100000;
+        if (width > 40)
+        {
+            _blocks.WidthRequest = width;
+            _editor.WidthRequest = width;
+            _blocks.MaximumWidthRequest = width;
+            _editor.MaximumWidthRequest = width;
+        }
+        else
+        {
+            _blocks.WidthRequest = -1;
+            _editor.WidthRequest = -1;
+            _blocks.MaximumWidthRequest = 100000;
+            _editor.MaximumWidthRequest = 100000;
+        }
     }
 
     /// <summary>字号 / 行高 / 列宽变化后需要重新测量所有块。</summary>
@@ -1201,14 +1219,45 @@ public sealed class ReaderPage : ContentPage
         if (_active?.Document is null || index < 0 || index >= _active.Document.Blocks.Count)
             return;
 
+        long now = Environment.TickCount64;
+        _programmaticScrollUntil = now + 500;
+        int generation = ++_jumpGeneration;
+
+        // 焦点如果在代码块里的「复制」按钮/横向 ScrollViewer 上，
+        // 列表一滚动就会回收这个控件；WinUI 的焦点管理随后可能直接
+        // E_UNEXPECTED 闪退。先把焦点交给稳定的外层列表 ScrollViewer。
+#if WINDOWS
         try
         {
+            MD.Platforms.Windows.WindowsFocus.ReleaseFromVirtualizedList(_blocks);
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write("跳转前释放焦点失败", ex);
+        }
+#endif
+
+        try
+        {
+            // 大纲跳转不用动画：动画期间会连续触发 Scrolled / 布局回收，
+            // 既卡顿又放大上面的焦点问题。
             _blocks.ScrollTo(index, position: ScrollToPosition.Start, animate: animate);
         }
-        catch
+        catch (Exception ex)
         {
-            // 列表尚未完成布局时可能抛异常
+            // 列表尚未完成布局时可能抛异常；不能让它冒泡成闪退
+            DiagnosticsLog.Write($"滚动到块 {index} 失败", ex);
         }
+
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(520), () =>
+        {
+            if (generation != _jumpGeneration)
+                return;
+
+            _programmaticScrollUntil = 0;
+            if (_active?.Document is not null && _settings.Current.Reading.SyncOutline)
+                _sidebar.SetActiveBlock(Math.Max(0, _activeCenterIndex));
+        });
     }
 
     // =======================================================================
@@ -1422,6 +1471,14 @@ public sealed class ReaderPage : ContentPage
 
     private int _activeCenterIndex;
 
+    // 程序化跳转（大纲 / 锚点）期间抑制大纲回写，避免
+    // 「点击大纲 → 滚正文 → 滚大纲列表 → 回收被点的行」的重入。
+    private long _programmaticScrollUntil;
+    private int _jumpGeneration;
+
+    // 滚动时状态栏 / 大纲最多每 80ms 更新一次，滚轮高频事件下别做无谓工作。
+    private long _lastScrollUiTick;
+
     private void OnScrolled(ItemsViewScrolledEventArgs e)
     {
         if (_active?.Document is null)
@@ -1436,16 +1493,26 @@ public sealed class ReaderPage : ContentPage
         _active.Progress = _progressValue;
         _progress.Progress = _progressValue;
 
-        if (_settings.Current.Reading.SyncOutline)
+        long nowTick = Environment.TickCount64;
+        bool duringJump = nowTick < _programmaticScrollUntil;
+
+        // 大纲回写会操作另一个 CollectionView（ScrollTo → 回收行），
+        // 程序化跳转期间必须停掉，否则就是「点大纲 → 滚正文 → 滚大纲 → 闪退」。
+        if (_settings.Current.Reading.SyncOutline && !duringJump)
             _sidebar.SetActiveBlock(Math.Max(0, e.FirstVisibleItemIndex));
 
-        UpdateStatusBar();
+        // 状态栏/大纲/进度落盘最多 80ms 一次；滚轮一秒能发几十个事件，
+        // 每次都重建状态文字、扫描 60+ 个大纲行是卡顿的主要来源之一。
+        if (nowTick - _lastScrollUiTick >= 80)
+        {
+            _lastScrollUiTick = nowTick;
+            UpdateStatusBar();
 
-        if (!string.IsNullOrEmpty(_active.Path))
-            _settings.RememberScroll(_active.Path, _progressValue);
+            if (!duringJump && !string.IsNullOrEmpty(_active.Path))
+                _settings.RememberScroll(_active.Path, _progressValue);
+        }
 
         // 滚动位置留痕（限流）：排查「进度条 / 大纲不跟着走」这类问题时看 md.log
-        var nowTick = Environment.TickCount64;
         if (nowTick - _lastScrollLogTick > 1000)
         {
             _lastScrollLogTick = nowTick;

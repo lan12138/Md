@@ -34,13 +34,25 @@ internal static class WindowsWheelRouter
     private static readonly Dictionary<ScrollViewer, double> LastHorizontal = new();
     private static bool _attached;
 
-    // ---- 诊断用（排查「滚轮没被转交」时看 md.log；限流，避免刷屏）----
+    // 高频滚轮事件按帧合并：每个 Dispatcher tick 只 ChangeView 一次。
+    private static double _pendingDelta;
+    private static ScrollViewer? _pendingOuter;
+    private static bool _flushQueued;
+
+    // 诊断默认关闭。滚轮一秒几十次，如果每次都写 md.log（同步文件 IO），
+    // 本身就会造成明显卡顿；排查时用环境变量 MD_WHEEL_DIAG=1 打开。
+    private static readonly bool DiagEnabled =
+        string.Equals(Environment.GetEnvironmentVariable("MD_WHEEL_DIAG"), "1", StringComparison.Ordinal);
+
     private static readonly System.Diagnostics.Stopwatch DiagClock = System.Diagnostics.Stopwatch.StartNew();
     private static long _lastDiagTick = -10000;
     private static string _lastDiag = string.Empty;
 
     private static void Diag(string message)
     {
+        if (!DiagEnabled)
+            return;
+
         var now = DiagClock.ElapsedMilliseconds;
         if (message == _lastDiag && now - _lastDiagTick < 1000)
             return;
@@ -105,33 +117,63 @@ internal static class WindowsWheelRouter
 
         // 自己能纵向滚动就别抢
         if (CanScrollVertically(inner))
-        {
-            Diag($"内层 ScrollViewer 本身可纵向滚动，放行（可滚高度={inner.ScrollableHeight:0}）");
             return;
-        }
 
         var outer = FindScrollableAncestor(inner);
         if (outer is null)
-        {
-            Diag("往上找不到可纵向滚动的祖先 ScrollViewer，放行");
             return;
-        }
 
         // 内层横向可滚的 ScrollViewer 可能已经被类处理器横向滚了一格，还原它。
         if (LastHorizontal.TryGetValue(inner, out var previous) &&
             Math.Abs(inner.HorizontalOffset - previous) > 0.5)
         {
-            inner.ChangeView(previous, null, null, true);
+            try { inner.ChangeView(previous, null, null, true); } catch { /* 忽略 */ }
         }
 
         Remember(inner);
 
+        // 不在这里直接 ChangeView：一次滚轮会发多个事件，逐次启动动画会
+        // 叠加成卡顿；按 Dispatcher tick 合并成一次，并禁用动画。
+        _pendingDelta += delta;
+        _pendingOuter = outer;
+        e.Handled = true;
+
+        if (_flushQueued)
+            return;
+        _flushQueued = true;
+
+        bool queued = false;
+        try
+        {
+            queued = outer.DispatcherQueue.TryEnqueue(FlushWheel);
+        }
+        catch
+        {
+            // DispatcherQueue 不可用时退回同步执行
+        }
+
+        if (!queued)
+            FlushWheel();
+    }
+
+    private static void FlushWheel()
+    {
+        var outer = _pendingOuter;
+        double delta = _pendingDelta;
+        _pendingOuter = null;
+        _pendingDelta = 0;
+        _flushQueued = false;
+
+        // 合并到下一 tick 时，原来的 ScrollViewer 可能已被回收；
+        // 对已卸载元素调用 ChangeView 会在 WinUI 里直接 E_UNEXPECTED 原生崩溃。
+        if (outer is null || Math.Abs(delta) < 0.5 || outer.XamlRoot is null || !outer.IsLoaded)
+            return;
+
         try
         {
             double target = Math.Max(0, outer.VerticalOffset - delta);
-            bool ok = outer.ChangeView(null, target, null, false);
-            Diag($"已把滚轮转交给祖先 ScrollViewer：{outer.VerticalOffset:0} → {target:0}（返回值={ok}）");
-            e.Handled = true;
+            outer.ChangeView(null, target, null, true);
+            Diag($"已把滚轮转交给祖先 ScrollViewer：{outer.VerticalOffset:0} → {target:0}");
         }
         catch (Exception ex)
         {
