@@ -21,7 +21,8 @@
 #  修改：2026-09-21  不再向命令行传 -r / --self-contained（会污染 Android 目标导致 NU1102）
 # -----------------------------------------------------------------------------
 param(
-    [ValidateSet('win-x64', 'win-arm64')]
+    # win-x86 覆盖 32 位 Windows 10（老机器仍有一定存量）；win-arm64 覆盖原生 ARM64。
+    [ValidateSet('win-x64', 'win-x86', 'win-arm64')]
     [string]$Runtime = 'win-x64',
 
     # single    -> 自包含单文件（用户无需装任何运行时，约 150~250 MB）

@@ -3,22 +3,35 @@
 //  文件：Platforms/Windows/WindowsShellIntegration.cs
 //  说明：Windows Shell 集成。全部只写 HKEY_CURRENT_USER，不需要管理员权限。
 //
-//        做三件事：
-//          1) 注册 ProgId（MD.Markdown）+ .md 等扩展名的 OpenWithProgids
-//             → 右键「打开方式」里出现 MD，且可以「始终使用此应用打开」
-//          2) 注册 RegisteredApplications / Capabilities
-//             → MD 出现在「默认应用」列表里，用户可以在系统设置里正式设为默认
-//          3) 追加右键菜单项：文件「用 MD 打开」/ 文件夹「用 MD 打开文件夹」
+//        注册模型（刻意保持「一个应用、一个 ProgId」，避免打开方式里出现重复项）：
+//          1) ProgId：HKCU\Software\Classes\MD.Markdown
+//             · 默认值      = MD（打开方式列表显示的名字）
+//             · FriendlyTypeName = Markdown 文档
+//             · DefaultIcon / shell\open\command
+//          2) 扩展名：.md 等 → OpenWithProgids 写入 MD.Markdown
+//          3) 右键菜单：SystemFileAssociations\.md\shell\MD（只对 Markdown 文件出现）
+//             + Directory\shell\MD（文件夹）
+//          4) Capabilities + RegisteredApplications → 系统「默认应用」列表
+//
+//        为什么不再写 Applications\MD.exe：
+//          它与 OpenWithProgids 同时存在时，「打开方式」里会出现两个 MD 条目，
+//          其中一个还只有类型名没有图标 —— 用户反馈的「怪怪的」主要来自这里。
+//          现在统一由 ProgId 承担显示名与图标，注册表里只留一份。
 //
 //        ⚠ 为什么不能直接「一键设为默认」：
-//        Windows 8 起，默认关联由 UserChoice 哈希保护，微软明确禁止程序自行改写
+//        Windows 8 起默认关联由 UserChoice 哈希保护，微软明确禁止程序自行改写
 //        （会被系统重置）。唯一合规做法是把应用注册干净，然后引导用户到系统
-//        「默认应用」页面确认一次。所以这里的「设为默认」按钮是「打开设置页」，
-//        而不是偷偷改注册表 —— 那既无效也不正当。
+//        「默认应用」页面确认一次。
 //
 //  作者：MD
 //  创建：2026-09-21
 //  修改：2026-09-21  初版
+//  修改：2026-11-08  重做默认打开方式：
+//                   · 去掉 Applications\MD.exe 与 OpenWithProgids 的重复条目
+//                   · ProgId 默认值改为应用名 MD，图标/命令只保留一份
+//                   · 右键菜单从 *\shell\MD 收窄到 SystemFileAssociations\.md
+//                   · Capabilities 补 ApplicationIcon，默认应用页显示正确图标
+//                   · LaunchAdvancedAssociationUI 检查 HRESULT，失败再退到设置页
 // -----------------------------------------------------------------------------
 
 #if WINDOWS
@@ -32,7 +45,8 @@ internal static class WindowsShellIntegration
 {
     private const string ProgId = "MD.Markdown";
     private const string AppName = "MD";
-    private const string FriendlyName = "Markdown 文档";
+    private const string FriendlyTypeName = "Markdown 文档";
+    private const string AppDescription = "轻量 Markdown 阅读器";
 
     /// <summary>参与关联的扩展名。</summary>
     private static readonly string[] Extensions = { ".md", ".markdown", ".mdown", ".mkd", ".mdx" };
@@ -49,14 +63,21 @@ internal static class WindowsShellIntegration
         }
     }
 
+    /// <summary>完整注册是否齐备（ProgId + Capabilities + RegisteredApplications）。</summary>
     public static bool IsRegistered
     {
         get
         {
             try
             {
-                using var key = Registry.CurrentUser.OpenSubKey($@"Software\Classes\{ProgId}");
-                return key is not null;
+                using var progId = Registry.CurrentUser.OpenSubKey($@"Software\Classes\{ProgId}");
+                using var capabilities = Registry.CurrentUser.OpenSubKey(@"Software\MD\Capabilities");
+                using var registered = Registry.CurrentUser.OpenSubKey(@"Software\RegisteredApplications");
+                if (progId is null || capabilities is null || registered is null)
+                    return false;
+
+                return registered.GetValue(AppName) is string value
+                       && value.Equals(@"Software\MD\Capabilities", StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
@@ -65,7 +86,7 @@ internal static class WindowsShellIntegration
         }
     }
 
-    /// <summary>注册（幂等，重复调用只是覆盖同样的值）。</summary>
+    /// <summary>注册（幂等；会顺手清掉旧版本留下的重复/过宽条目）。</summary>
     public static (bool Ok, string Message) Register()
     {
         var exe = ExecutablePath;
@@ -75,41 +96,44 @@ internal static class WindowsShellIntegration
         try
         {
             string openCommand = $"\"{exe}\" \"%1\"";
+            string folderCommand = $"\"{exe}\" --folder \"%1\"";
+            string icon = $"\"{exe}\",0";
 
-            // ---- ProgId ----
+            // ---- 0) 清掉旧版本留下的、会造成重复的键 ----
+            DeleteTree($@"Software\Classes\Applications\{Path.GetFileName(exe)}");
+            DeleteTree(@"Software\Classes\*\shell\MD");
+
+            // ---- 1) ProgId：显示名 / 类型名 / 图标 / 命令 ----
             using (var progId = Registry.CurrentUser.CreateSubKey($@"Software\Classes\{ProgId}"))
             {
-                progId.SetValue(null, FriendlyName);
-                progId.SetValue("FriendlyTypeName", FriendlyName);
-                using var icon = progId.CreateSubKey("DefaultIcon");
-                icon.SetValue(null, $"\"{exe}\",0");
+                // 默认值是「打开方式」列表里显示的应用名
+                progId.SetValue(null, AppName);
+                progId.SetValue("FriendlyTypeName", FriendlyTypeName);
+                // 部分 Windows 版本会读 FriendlyAppName；与默认值一致，避免再出现第二个名字
+                progId.SetValue("FriendlyAppName", AppName);
+
+                using var iconKey = progId.CreateSubKey("DefaultIcon");
+                iconKey.SetValue(null, icon);
+
                 using var command = progId.CreateSubKey(@"shell\open\command");
                 command.SetValue(null, openCommand);
             }
 
-            // ---- 扩展名 → OpenWithProgids ----
+            // ---- 2) 扩展名 → OpenWithProgids（只登记 ProgId，不再登记 Applications\MD.exe）----
             foreach (var ext in Extensions)
             {
                 using var extKey = Registry.CurrentUser.CreateSubKey($@"Software\Classes\{ext}\OpenWithProgids");
+                // 旧版本可能写过 Applications\MD.exe 之类的值；不主动删别人的值，只补自己的
                 extKey.SetValue(ProgId, Array.Empty<byte>(), RegistryValueKind.None);
             }
 
-            // ---- Applications 键：让「打开方式」列表里一定能看到 ----
-            using (var app = Registry.CurrentUser.CreateSubKey($@"Software\Classes\Applications\{Path.GetFileName(exe)}"))
+            // ---- 3) 右键菜单：只对 Markdown 文件出现，不再污染所有文件 ----
+            foreach (var ext in Extensions)
             {
-                app.SetValue("FriendlyAppName", AppName);
-                using var command = app.CreateSubKey(@"shell\open\command");
-                command.SetValue(null, openCommand);
-                using var types = app.CreateSubKey("SupportedTypes");
-                foreach (var ext in Extensions)
-                    types.SetValue(ext, string.Empty);
-            }
-
-            // ---- 右键菜单：文件 ----
-            using (var ctx = Registry.CurrentUser.CreateSubKey(@"Software\Classes\*\shell\MD"))
-            {
+                using var ctx = Registry.CurrentUser.CreateSubKey(
+                    $@"Software\Classes\SystemFileAssociations\{ext}\shell\MD");
                 ctx.SetValue("MUIVerb", "用 MD 打开");
-                ctx.SetValue("Icon", $"\"{exe}\",0");
+                ctx.SetValue("Icon", icon);
                 using var command = ctx.CreateSubKey("command");
                 command.SetValue(null, openCommand);
             }
@@ -118,17 +142,18 @@ internal static class WindowsShellIntegration
             using (var ctx = Registry.CurrentUser.CreateSubKey(@"Software\Classes\Directory\shell\MD"))
             {
                 ctx.SetValue("MUIVerb", "用 MD 打开文件夹");
-                ctx.SetValue("Icon", $"\"{exe}\",0");
+                ctx.SetValue("Icon", icon);
                 using var command = ctx.CreateSubKey("command");
-                // --folder 是自定义开关，命令行解析里认它
-                command.SetValue(null, $"\"{exe}\" --folder \"%1\"");
+                command.SetValue(null, folderCommand);
             }
 
-            // ---- Capabilities：出现在「默认应用」列表里 ----
+            // ---- 4) Capabilities：出现在「默认应用」列表里，并带图标 ----
             using (var capabilities = Registry.CurrentUser.CreateSubKey(@"Software\MD\Capabilities"))
             {
                 capabilities.SetValue("ApplicationName", AppName);
-                capabilities.SetValue("ApplicationDescription", "MD · Markdown 阅读器");
+                capabilities.SetValue("ApplicationDescription", AppDescription);
+                capabilities.SetValue("ApplicationIcon", icon);
+
                 using var assoc = capabilities.CreateSubKey("FileAssociations");
                 foreach (var ext in Extensions)
                     assoc.SetValue(ext, ProgId);
@@ -140,7 +165,7 @@ internal static class WindowsShellIntegration
             }
 
             RefreshShell();
-            return (true, "已注册：右键「打开方式」里现在可以选择 MD");
+            return (true, "已注册：右键「打开方式」与系统「默认应用」里都能看到 MD");
         }
         catch (Exception ex)
         {
@@ -149,30 +174,36 @@ internal static class WindowsShellIntegration
         }
     }
 
-    /// <summary>注销（只删自己写的键）。</summary>
+    /// <summary>注销（只删自己写的键；同时兼容旧版本的旧键）。</summary>
     public static (bool Ok, string Message) Unregister()
     {
         try
         {
+            var exe = ExecutablePath;
+
             DeleteTree($@"Software\Classes\{ProgId}");
+            DeleteTree(@"Software\MD");
             DeleteTree(@"Software\Classes\*\shell\MD");
             DeleteTree(@"Software\Classes\Directory\shell\MD");
-            DeleteTree(@"Software\MD");
+
+            // 旧版本注册过 Applications\MD.exe；一并清掉
+            if (!string.IsNullOrEmpty(exe))
+                DeleteTree($@"Software\Classes\Applications\{Path.GetFileName(exe)}");
 
             foreach (var ext in Extensions)
             {
-                using var extKey = Registry.CurrentUser.OpenSubKey($@"Software\Classes\{ext}\OpenWithProgids", writable: true);
+                DeleteTree($@"Software\Classes\SystemFileAssociations\{ext}\shell\MD");
+
+                using var extKey = Registry.CurrentUser.OpenSubKey(
+                    $@"Software\Classes\{ext}\OpenWithProgids", writable: true);
                 extKey?.DeleteValue(ProgId, throwOnMissingValue: false);
             }
 
-            using (var registered = Registry.CurrentUser.OpenSubKey(@"Software\RegisteredApplications", writable: true))
+            using (var registered = Registry.CurrentUser.OpenSubKey(
+                       @"Software\RegisteredApplications", writable: true))
             {
                 registered?.DeleteValue(AppName, throwOnMissingValue: false);
             }
-
-            var exe = Path.GetFileName(ExecutablePath);
-            if (!string.IsNullOrEmpty(exe))
-                DeleteTree($@"Software\Classes\Applications\{exe}");
 
             RefreshShell();
             return (true, "已移除 MD 的右键菜单与「打开方式」注册");
@@ -185,30 +216,46 @@ internal static class WindowsShellIntegration
     }
 
     /// <summary>
-    /// 打开系统「默认应用」页面。
-    /// Windows 不允许程序直接改默认关联（UserChoice 有哈希保护），
-    /// 所以这里优先调传统关联 UI，失败则退到「默认应用」设置页。
+    /// 打开系统「默认应用」相关页面。
+    /// 优先用官方 IApplicationAssociationRegistrationUI（只列出本应用的关联，
+    /// 用户勾选一次即可）；它不可用时退到 Windows 11 的按应用页，再退到总页面。
     /// </summary>
     public static void OpenDefaultAppsSettings()
     {
+        // 1) 官方高级关联 UI：HRESULT 必须显式检查，不能「调用了就当成功」
         try
         {
             var ui = (IApplicationAssociationRegistrationUI)new ApplicationAssociationRegistrationUI();
-            ui.LaunchAdvancedAssociationUI(AppName);
-            return;
+            int hr = ui.LaunchAdvancedAssociationUI(AppName);
+            if (hr == 0)
+                return;
+
+            Services.DiagnosticsLog.Write($"LaunchAdvancedAssociationUI 返回 0x{hr:X8}，改用设置页");
         }
         catch (Exception ex)
         {
-            Services.DiagnosticsLog.Write("LaunchAdvancedAssociationUI 不可用，退回设置页", ex);
+            Services.DiagnosticsLog.Write("LaunchAdvancedAssociationUI 不可用，改用设置页", ex);
         }
 
+        // 2) Windows 11：直接打开 MD 这一应用的默认值页面
+        if (TryOpenSettings($"ms-settings:defaultapps?registeredAppUser={Uri.EscapeDataString(AppName)}"))
+            return;
+
+        // 3) 最后兜底：默认应用总页面
+        TryOpenSettings("ms-settings:defaultapps");
+    }
+
+    private static bool TryOpenSettings(string uri)
+    {
         try
         {
-            Process.Start(new ProcessStartInfo("ms-settings:defaultapps") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+            return true;
         }
         catch (Exception ex)
         {
-            Services.DiagnosticsLog.Write("打开默认应用设置失败", ex);
+            Services.DiagnosticsLog.Write($"打开设置页失败: {uri}", ex);
+            return false;
         }
     }
 
@@ -248,7 +295,8 @@ internal static class WindowsShellIntegration
     {
         try
         {
-            SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0x0000 /* SHCNF_IDLIST */, IntPtr.Zero, IntPtr.Zero);
+            SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0x1000 /* SHCNF_FLUSH */,
+                IntPtr.Zero, IntPtr.Zero);
         }
         catch
         {

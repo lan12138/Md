@@ -42,6 +42,8 @@ public static class ShellCommandLine
                     command = "unregister";
                 else if (arg.Equals("--default-apps", StringComparison.OrdinalIgnoreCase))
                     command = "default-apps";
+                else if (arg.Equals("--diagnose", StringComparison.OrdinalIgnoreCase))
+                    command = "diagnose";
             }
         }
         catch (Exception ex)
@@ -78,6 +80,14 @@ public static class ShellCommandLine
                     DiagnosticsLog.Write("命令行打开默认应用设置页");
                     Environment.Exit(0);
                     return;
+
+                case "diagnose":
+                {
+                    var path = StartupGuard.WriteDiagnostics();
+                    DiagnosticsLog.Write($"命令行诊断完成: {path}");
+                    Environment.Exit(0);
+                    return;
+                }
             }
         }
         catch (Exception ex)

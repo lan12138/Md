@@ -143,7 +143,12 @@ public sealed class ReaderPage : ContentPage
             _sidebar.SetDocument(_active?.Document);
             _toast.Show(_ctx, "已从最近列表移除");
         };
-        _sidebar.SetTabByName(_settings.Current.Workspace.SidebarTab);
+        // 没有打开文件夹时，「文件」页签必然是空列表；直接回到大纲，
+        // 避免用户打开一篇文档却先看到「还没有打开文件夹」。
+        var sidebarTab = _settings.Current.Workspace.SidebarTab;
+        if (sidebarTab == "folder" && string.IsNullOrEmpty(_settings.Current.Workspace.FolderPath))
+            sidebarTab = "outline";
+        _sidebar.SetTabByName(sidebarTab);
         _sidebar.IsVisible = _settings.Current.Window.SidebarVisible && !_settings.Current.Reading.FocusMode;
 
         // ---------------- 阅读区 ----------------
@@ -974,6 +979,7 @@ public sealed class ReaderPage : ContentPage
         _sidebar.RefreshRecent();
         RefreshTabStrip();
         RefreshFolderState();
+        TrimInactiveTabDocuments();
     }
 
     /// <summary>切换到指定标签（必要时惰性加载内容）。</summary>
@@ -983,18 +989,20 @@ public sealed class ReaderPage : ContentPage
         PersistActiveTabState();
 
         _active = tab;
+        tab.LastAccessUtc = DateTime.UtcNow;
         _loadSummary = tab.LoadSummary;
 
         _sidebar.SetDocument(tab.Document);
 
         if (!deferLoad && tab.Document is null && !string.IsNullOrEmpty(tab.Path))
         {
-            // 惰性加载：上次会话留下的标签，切换到时才真正读取
+            // 惰性加载：被内存上限释放掉的标签，切换到时才真正读取
             _ = LoadTabAsync(tab, restoreScroll);
             return;
         }
 
         ApplyDocumentToView(tab, restoreScroll);
+        TrimInactiveTabDocuments();
     }
 
     private async Task LoadTabAsync(DocumentTab tab, bool restoreScroll)
@@ -1021,6 +1029,7 @@ public sealed class ReaderPage : ContentPage
         }
 
         RefreshTabStrip();
+        TrimInactiveTabDocuments();
     }
 
     private void ActivateTabById(string id)
@@ -1102,8 +1111,6 @@ public sealed class ReaderPage : ContentPage
                 $"解析={tab.Document.ParseTime.TotalMilliseconds:0}ms 正文宽={_ctx.ContentWidth:0}");
         }
 
-        _settings.Current.Workspace.ActiveTab = string.IsNullOrEmpty(tab.Path) ? null : tab.Path;
-        _settings.Touch();
     }
 
     /// <summary>取该标签应恢复的滚动进度（磁盘文件优先用配置里记录的）。</summary>
@@ -1116,6 +1123,37 @@ public sealed class ReaderPage : ContentPage
                 return saved;
         }
         return tab.Progress;
+    }
+
+    /// <summary>
+    /// 限制同时驻留的已解析文档数量。标签页开得很多时（尤其是几十个大文件），
+    /// 每个标签都持有完整块列表和原文，内存会线性上涨；这里只保留最近访问的
+    /// 若干个，其余释放，切回去时按需重新读取。未保存的编辑与示例文档不动。
+    /// </summary>
+    private void TrimInactiveTabDocuments()
+    {
+        const int maxResident = 6;
+
+        var loaded = _openTabs
+            .Where(t => t.Document is not null)
+            .OrderByDescending(t => t.LastAccessUtc)
+            .ToList();
+
+        if (loaded.Count <= maxResident)
+            return;
+
+        foreach (var tab in loaded.Skip(maxResident))
+        {
+            if (ReferenceEquals(tab, _active) || tab.IsEditing || tab.IsModified || string.IsNullOrEmpty(tab.Path))
+                continue;
+
+            tab.Document = null;
+            tab.Text = string.Empty;
+            tab.LoadSummary = string.Empty;
+        }
+
+        // 缓存里还握着同一批 MdDocument，单独释放标签对象是没用的
+        _docSvc.ClearCache();
     }
 
     /// <summary>把当前标签的滚动位置 / 编辑内容存回标签与配置。</summary>
@@ -1223,8 +1261,6 @@ public sealed class ReaderPage : ContentPage
                 _progress.IsVisible = false;
                 _sidebar.SetDocument(null);
                 _loadSummary = string.Empty;
-                _settings.Current.Workspace.ActiveTab = null;
-                _settings.Touch();
                 BuildToolbar();
                 RefreshTabStrip();
                 UpdateChrome();
@@ -1236,20 +1272,7 @@ public sealed class ReaderPage : ContentPage
             RefreshTabStrip();
         }
 
-        PersistOpenTabs();
         RefreshFolderState();
-    }
-
-    private void PersistOpenTabs()
-    {
-        var workspace = _settings.Current.Workspace;
-        workspace.OpenTabs = _openTabs
-            .Where(t => !string.IsNullOrEmpty(t.Path))
-            .Select(t => t.Path)
-            .ToList();
-        workspace.ActiveTab = string.IsNullOrEmpty(_active?.Path) ? null : _active!.Path;
-        workspace.SidebarTab = _sidebar.TabName;
-        _settings.Touch();
     }
 
     private void CycleTab(int step)
@@ -1718,9 +1741,10 @@ public sealed class ReaderPage : ContentPage
     /// <summary>窗口关闭前把会话状态写回配置（由 App 调用）。</summary>
     public void OnShutdown()
     {
+        // 只保留本次运行内的滚动位置（不落盘）；标签列表 / 文件夹路径不再保存，
+        // 下次启动从欢迎页开始。
         PersistActiveTabState();
-        PersistOpenTabs();
-        DiagnosticsLog.Write($"会话已保存：标签 {_openTabs.Count} 个，文件夹={_settings.Current.Workspace.FolderPath ?? "无"}");
+        DiagnosticsLog.Write($"关闭：本次运行 {_openTabs.Count} 个标签（不写入历史）");
     }
 
     /// <summary>窗口就绪后的初始化：命令行参数 / 上次会话 / 欢迎页。</summary>
@@ -1751,12 +1775,9 @@ public sealed class ReaderPage : ContentPage
     {
         var args = ReadCommandLine();
 
-        // 1) 先恢复上次会话的文件夹与标签（打开文件夹逐篇阅读的用法下，
-        //    每次启动都应该回到原来的工作区，而不是只留一个孤零零的文件）
-        await RestoreFolderSilentlyAsync();
-        await RestoreTabsAsync();
-
-        // 2) 命令行指定了文件夹
+        // 启动只有两种来源：命令行（资源管理器双击 / 右键 / 脚本）或欢迎页。
+        // 不恢复上次的标签、文件夹和最近文件 —— 用户明确要求不保存文件历史，
+        // 每次启动都从干净状态开始，左上角不会再冒出一排旧标签。
         if (args.Folder is not null)
         {
             DiagnosticsLog.Write($"命令行打开文件夹: {args.Folder}");
@@ -1766,7 +1787,6 @@ public sealed class ReaderPage : ContentPage
             return;
         }
 
-        // 3) 命令行指定了文件（从资源管理器双击 / 右键打开走这条）
         if (args.File is not null)
         {
             DiagnosticsLog.Write($"命令行打开: {args.File}");
@@ -1774,20 +1794,7 @@ public sealed class ReaderPage : ContentPage
             return;
         }
 
-        // 4) 会话里已经有恢复出来的标签就不用管了
-        if (_openTabs.Count > 0)
-            return;
-
-        // 5) 上次打开的文件
-        var last = _settings.Current.Files.LastFile;
-        if (!string.IsNullOrEmpty(last) && File.Exists(last))
-        {
-            DiagnosticsLog.Write($"打开上次文件: {last}");
-            await OpenFileAsync(last);
-            return;
-        }
-
-        DiagnosticsLog.Write("无可打开内容 → 显示欢迎页");
+        DiagnosticsLog.Write("无命令行文件 → 显示欢迎页（不恢复历史标签）");
         _welcome.IsVisible = true;
         _blocks.IsVisible = false;
         _progress.IsVisible = false;
@@ -1848,64 +1855,4 @@ public sealed class ReaderPage : ContentPage
         return (file, folder);
     }
 
-    /// <summary>静默恢复上次的文件夹（失败不打扰用户）。</summary>
-    private async Task RestoreFolderSilentlyAsync()
-    {
-        var folder = _settings.Current.Workspace.FolderPath;
-        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
-            return;
-
-        try
-        {
-            var result = await _folders.ScanAsync(folder, _settings.Current.Workspace.FolderRecursive);
-            if (!result.Success || result.Root is null)
-                return;
-
-            _folderRoot = result.Root;
-            _sidebar.SetFolder(_folderRoot);
-            _sidebar.SetFolderCaption(folder);
-            RefreshFolderState();
-        }
-        catch (Exception ex)
-        {
-            DiagnosticsLog.Write("恢复文件夹失败", ex);
-        }
-    }
-
-    /// <summary>恢复上次会话的标签页，返回是否恢复出了内容。</summary>
-    private async Task<bool> RestoreTabsAsync()
-    {
-        var workspace = _settings.Current.Workspace;
-        var paths = workspace.OpenTabs
-            .Where(p => !string.IsNullOrEmpty(p) && File.Exists(p))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(20)
-            .ToList();
-
-        if (paths.Count == 0)
-            return false;
-
-        // 只解析当前那一个，其余等切换时再读（打开 20 个标签也不会卡住启动）
-        var activePath = workspace.ActiveTab;
-        if (string.IsNullOrEmpty(activePath) || !paths.Contains(activePath, StringComparer.OrdinalIgnoreCase))
-            activePath = paths[0];
-
-        foreach (var path in paths)
-        {
-            var tab = new DocumentTab
-            {
-                Path = path,
-                Title = Path.GetFileName(path),
-            };
-            _openTabs.Add(tab);
-        }
-
-        var active = _openTabs.First(t => string.Equals(t.Path, activePath, StringComparison.OrdinalIgnoreCase));
-        _active = active;
-        RefreshTabStrip();
-        DiagnosticsLog.Write($"恢复 {_openTabs.Count} 个标签，激活 {activePath}");
-
-        await LoadTabAsync(active, restoreScroll: true);
-        return true;
-    }
 }

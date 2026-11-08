@@ -44,6 +44,14 @@ public static class MauiProgram
         // 外壳集成指令：命中就执行完直接退出，不会创建窗口
         ShellCommandLine.TryRunAndExit();
 
+        // 最低系统版本检查：必须在 WinUI 初始化之前，否则老系统上只会「双击没反应」
+        if (!StartupGuard.CheckEnvironment(out var environmentError))
+        {
+            DiagnosticsLog.Write("启动环境不满足: " + environmentError);
+            StartupGuard.ShowFatal("MD 无法启动", environmentError ?? "当前系统版本不受支持。");
+            Environment.Exit(1);
+        }
+
         // 单实例：已有实例在运行时，把命令行参数转交给它，本进程立刻退出。
         // 必须在这里（建窗口之前）判断，否则第二个实例会先闪出一个窗口再消失。
         // --new-instance 是逃生阀：显式要求再开一个进程（并排对比两份文档时用）。
@@ -56,9 +64,28 @@ public static class MauiProgram
             Environment.Exit(0);
         }
 
-        var builder = MauiApp.CreateBuilder();
-        builder.UseMauiApp<App>();
-
-        return builder.Build();
+        try
+        {
+            var builder = MauiApp.CreateBuilder();
+            builder.UseMauiApp<App>();
+            return builder.Build();
+        }
+        catch (Exception ex)
+        {
+            // 这一层兜住 Windows App SDK / WinUI 初始化失败：
+            // 弹一个不依赖 WinUI 的中文错误框，并告诉用户日志在哪。
+            DiagnosticsLog.Write("创建 MauiApp 失败", ex);
+            StartupGuard.ShowFatal(
+                "MD 无法启动",
+                "程序初始化失败，常见原因：\n" +
+                "· 系统版本低于 Windows 10 1809\n" +
+                "· 单文件解压目录被杀毒软件拦截\n" +
+                "· 缺少系统组件或显卡驱动异常\n\n" +
+                $"错误：{ex.Message}\n\n" +
+                $"日志：{DiagnosticsLog.FilePath ?? "（不可用）"}\n" +
+                "可运行 MD.exe --diagnose 生成诊断文件。");
+            Environment.Exit(1);
+            throw;
+        }
     }
 }

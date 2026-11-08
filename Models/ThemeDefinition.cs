@@ -120,8 +120,9 @@ public sealed class ThemePalette
 
     public ThemePalette Clone()
     {
-        var json = JsonSerializer.Serialize(this, ThemeJson.Options);
-        return JsonSerializer.Deserialize<ThemePalette>(json, ThemeJson.Options) ?? new ThemePalette();
+        // 走源生成上下文：裁剪发布下反射序列化是关闭的
+        var json = JsonSerializer.Serialize(this, AppJsonContext.Default.ThemePalette);
+        return JsonSerializer.Deserialize(json, AppJsonContext.Default.ThemePalette) ?? new ThemePalette();
     }
 
     /// <summary>取语法着色对应的颜色。</summary>
@@ -197,6 +198,10 @@ public static class ThemeJson
 {
     public static readonly JsonSerializerOptions Options = new()
     {
+        // 裁剪 / AOT 下反射元数据会被裁掉，必须交给源生成上下文；
+        // 仍然保留这套 Options 是为了兼容 JsonNode.Deserialize 这类
+        // 需要 JsonSerializerOptions 的调用点。
+        TypeInfoResolver = AppJsonContext.Default,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         WriteIndented = true,

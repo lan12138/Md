@@ -18,8 +18,8 @@ namespace MD.Models;
 
 public sealed class AppSettings
 {
-    /// <summary>配置格式版本，便于后续迁移。</summary>
-    public int Version { get; set; } = 1;
+    /// <summary>配置格式版本，便于后续迁移。v2：不再持久化任何文件历史。</summary>
+    public int Version { get; set; } = 2;
 
     // ---------------- 外观 ----------------
     public AppearanceSettings Appearance { get; set; } = new();
@@ -38,8 +38,9 @@ public sealed class AppSettings
 
     public AppSettings Clone()
     {
-        var json = System.Text.Json.JsonSerializer.Serialize(this, ThemeJson.Options);
-        return System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json, ThemeJson.Options) ?? new AppSettings();
+        // 源生成上下文：裁剪发布下没有反射元数据
+        var json = System.Text.Json.JsonSerializer.Serialize(this, AppJsonContext.Default.AppSettings);
+        return System.Text.Json.JsonSerializer.Deserialize(json, AppJsonContext.Default.AppSettings) ?? new AppSettings();
     }
 }
 
@@ -61,9 +62,11 @@ public sealed class AppearanceSettings
 public sealed class WindowSettings
 {
     /// <summary>窗口左上角 X。null 表示「尚无记录」，交给系统决定默认位置。</summary>
+    [JsonConverter(typeof(FiniteNullableDoubleConverter))]
     public double? X { get; set; }
 
     /// <summary>窗口左上角 Y。null 表示「尚无记录」。</summary>
+    [JsonConverter(typeof(FiniteNullableDoubleConverter))]
     public double? Y { get; set; }
 
     public double Width { get; set; } = 1180;
@@ -103,17 +106,26 @@ public sealed class ReadingSettings
     /// <summary>图片自动加载（关闭后显示占位）。</summary>
     public bool LoadImages { get; set; } = true;
 
-    /// <summary>文件路径 → 滚动进度（0~1）。</summary>
+    /// <summary>
+    /// 文件路径 → 滚动进度（0~1）。**只在本次运行内有效**。
+    /// 不写进 settings.json：文件路径属于「打开记录」，用户明确要求不保存历史。
+    /// </summary>
+    [JsonIgnore]
     public Dictionary<string, double> ScrollPositions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>文件路径 → 最后访问时间（UTC ticks），用于清理过旧记录。</summary>
+    /// <summary>文件路径 → 最后访问时间（UTC ticks），仅本次运行内用于容量控制。</summary>
+    [JsonIgnore]
     public Dictionary<string, long> LastSeen { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class FileSettings
 {
-    public string? LastFile { get; set; }
-
+    /// <summary>
+    /// 「最近打开」只服务本次运行，**不落盘**。
+    /// 旧版本曾把它写进 settings.json，导致每次启动左上角恢复一堆历史标签；
+    /// v2 起用 [JsonIgnore] 彻底移出持久化，并清掉磁盘上的旧字段。
+    /// </summary>
+    [JsonIgnore]
     public List<RecentFile> Recent { get; set; } = new();
 
     public int MaxRecent { get; set; } = 20;
@@ -132,10 +144,14 @@ public sealed class RecentFile
     public bool Exists => System.IO.File.Exists(Path);
 }
 
-/// <summary>工作区状态：打开的文件夹与标签页，下次启动原样恢复。</summary>
+/// <summary>
+/// 工作区状态。只保留「与文件无关」的偏好（侧栏页签、递归开关）。
+/// 文件夹路径 / 标签页列表属于打开记录，v2 起不再持久化。
+/// </summary>
 public sealed class WorkspaceSettings
 {
-    /// <summary>当前打开的文件夹（用于侧栏「文件」页签）。</summary>
+    /// <summary>本次运行打开的文件夹（仅用于文件夹选择框的起始位置）。</summary>
+    [JsonIgnore]
     public string? FolderPath { get; set; }
 
     /// <summary>是否递归扫描子目录。</summary>
@@ -143,10 +159,4 @@ public sealed class WorkspaceSettings
 
     /// <summary>侧栏当前页签：outline / recent / folder。</summary>
     public string SidebarTab { get; set; } = "outline";
-
-    /// <summary>已打开的标签页（按显示顺序）。</summary>
-    public List<string> OpenTabs { get; set; } = new();
-
-    /// <summary>当前激活的标签页路径。</summary>
-    public string? ActiveTab { get; set; }
 }

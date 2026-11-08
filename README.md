@@ -1,11 +1,12 @@
-# MD · 跨平台 Markdown 阅读器
+﻿# MD · 跨平台 Markdown 阅读器
 
 > 用 **.NET 10 + .NET MAUI** 重写的「Typora 式」阅读体验：
 > 原生控件渲染、不内嵌浏览器内核、长文档流畅滚动、9 套内置主题，
 > 所有个性化设置落到一个 JSON 文件。
 
-**当前交付目标只有 Windows**，产物是一个 **71.8 MB 的单文件 `MD.exe`** ——双击即用，
-目标机器不需要预装 .NET 运行时，也不需要 Windows App SDK。
+**当前交付目标只有 Windows**，产物是一个 **42.3 MB 的单文件 `MD.exe`** ——双击即用，
+目标机器不需要预装 .NET 运行时，也不需要 Windows App SDK。Release 发布启用
+**full trim + 单文件压缩**，比未裁剪版本小约 45%。
 
 Android 目标已停用（手机端 Markdown 阅读器已经足够多），代码与脚本保留，一行配置即可恢复。
 
@@ -36,8 +37,8 @@ Android 目标已停用（手机端 Markdown 阅读器已经足够多），代�
 
 - 大纲：标题树，点击跳转，滚动正文时自动高亮当前章节
 - 文件夹工作区：打开一个目录，树形列出其中的 `.md`
-- 最近打开的文件
-- **标签页**：可切换 / 逐个关闭，启动时恢复上次的标签与文件夹
+- 最近打开：**只保留在本次运行内**，不写进配置、下次启动清空
+- **标签页**：可切换 / 逐个关闭；启动时**不恢复**历史标签与文件夹，始终从欢迎页或命令行文件开始
 - 顶部阅读进度条，底部状态栏显示编码 / 换行 / 字数 / 行数 / 当前章节 / 进度 / 当前主题
 
 **编辑**
@@ -50,10 +51,14 @@ Android 目标已停用（手机端 Markdown 阅读器已经足够多），代�
 **Windows 系统集成**
 
 - **单实例运行**：双击第二个 `.md` 会把文件送到当前窗口的新标签并提到前台，不再起第二个进程
-- 右键「用 MD 打开」/「用 MD 打开文件夹」，并出现在右键「打开方式」与系统「默认应用」列表
+- 右键「用 MD 打开」/「用 MD 打开文件夹」（只对 Markdown 文件出现），并出现在右键「打开方式」与系统「默认应用」列表
+- **默认应用注册只保留一份**：一个 ProgId `MD.Markdown` + 各扩展名 `OpenWithProgids` + `Capabilities`；
+  不再写 `Applications\MD.exe`，避免「打开方式」里出现两个 MD 条目
 - 拖拽文件到窗口打开
 - 命令行：`MD.exe <文件>`、`MD.exe --folder <目录>`、`MD.exe --new-instance`，
-  以及可脚本化的 `--register-shell` / `--unregister-shell` / `--default-apps`
+  以及可脚本化的 `--register-shell` / `--unregister-shell` / `--default-apps` / `--diagnose`
+- **打不开时有中文错误框**：启动前检查 Windows 10 1809+；MauiApp/WinUI 初始化失败会弹出原因与日志路径；
+  `--diagnose` 生成系统/架构/路径诊断文件
 - **系统标题栏跟随主题**：底色取自主题的 `toolbarBg`，亮暗主题下都与工具条连成一片
 
 **外观**
@@ -186,8 +191,9 @@ dotnet run --project tests/MD.EncodingSelfCheck -c Release
 - **标题栏没有菜单栏**：MAUI 10 的 Windows 端不渲染 `Page.MenuBarItems`，
   功能靠工具栏按钮 + 快捷键触达
 - **滚动进度不生效**：`CollectionView.Scrolled` 在 MAUI 10 / Windows 上不触发，
-  导致进度条与大纲高亮不实时更新，「记住阅读进度」失效
-- 单文件体积 71.8 MB —— WinUI / Windows App SDK 的原生依赖决定，属平台约束
+  进度条与大纲高亮不实时更新；阅读位置只在本次运行内记录，不跨启动保存
+- 单文件体积 42.3 MB —— 已经 full trim；剩余部分是 WinUI / Windows App SDK 原生依赖，
+  继续压只能换 UI 栈（Avalonia 可到 20–35 MB）
 - 标题内的行内代码会沿用标题色（MAUI 的 `Span` 不支持背景色）
 - 窗口位置只在**正常关闭**时记录；被强制结束则丢失（尺寸 / 主题不受影响）
 - Windows 上**不能由程序自行把本程序设成 `.md` 的默认打开方式**：
@@ -198,6 +204,11 @@ dotnet run --project tests/MD.EncodingSelfCheck -c Release
 
 - 界面全部用 **C# 构建，不使用 XAML**（`Platforms/` 的平台清单除外）：
   主题热切换需要按颜色重建整棵可视树，命令式代码更直接，也免去打包 XAML 资源。
-- 个性化设置（主题、窗口尺寸 / 位置、最近文件、阅读进度）在运行时写到
+- 个性化设置（主题、窗口尺寸 / 位置、排版、侧栏页签）在运行时写到
   `%APPDATA%\MD\settings.json`；诊断日志写在 `%APPDATA%\MD\md.log`。
-  程序没有控制台窗口，出问题看日志。
+  **不保存**最近文件、打开过的标签、上次文件、文件夹路径与阅读进度（v2 配置格式）。
+- 单文件运行时会解压到 `%TEMP%\.net\MD\<hash>`；如果杀毒软件拦截该目录，
+  会出现「双击没反应」，可先运行 `MD.exe --diagnose` 看诊断文件。
+- **架构**：默认发布 `win-x64`；老机器可用 `build/publish-windows.ps1 -Runtime win-x86`，
+  ARM64 机器用 `-Runtime win-arm64`。三者都是单文件。
+

@@ -2,20 +2,13 @@
 
   <PropertyGroup>
     <!--
-      交付目标：**只有 Windows**。
-
-      Android 目标已停用 —— 手机端支持 Markdown 的应用已经足够多，自研没有价值。
-      Platforms/Android 清单与 build/publish-android.ps1 都保留着，需要时把下面
-      第一行的注释换回多目标写法即可恢复（.NET 10 的 net10.0-android 需要
-      Android SDK 的 platforms/android-36，参考 docs/PLATFORMS.md）。
-
-      macOS(Mac Catalyst) 同理，且必须在 macOS 上构建。
-    -->
+      浜や粯鐩爣锛?*鍙湁 Windows**銆?
+      Android 鐩爣宸插仠鐢?鈥斺€?鎵嬫満绔敮鎸?Markdown 鐨勫簲鐢ㄥ凡缁忚冻澶熷锛岃嚜鐮旀病鏈変环鍊笺€?      Platforms/Android 娓呭崟涓?build/publish-android.ps1 閮戒繚鐣欑潃锛岄渶瑕佹椂鎶婁笅闈?      绗竴琛岀殑娉ㄩ噴鎹㈠洖澶氱洰鏍囧啓娉曞嵆鍙仮澶嶏紙.NET 10 鐨?net10.0-android 闇€瑕?      Android SDK 鐨?platforms/android-36锛屽弬鑰?docs/PLATFORMS.md锛夈€?
+      macOS(Mac Catalyst) 鍚岀悊锛屼笖蹇呴』鍦?macOS 涓婃瀯寤恒€?    -->
     <!--
-      注意这里是**单数** TargetFramework：只面向一个框架时必须用单数，
-      否则 MSBuild 仍按「多目标」处理，dotnet publish 会报
-      NETSDK1129（必须显式指定 -f）。
-      恢复多平台时把它改回复数的 TargetFrameworks 即可，例如：
+      娉ㄦ剰杩欓噷鏄?*鍗曟暟** TargetFramework锛氬彧闈㈠悜涓€涓鏋舵椂蹇呴』鐢ㄥ崟鏁帮紝
+      鍚﹀垯 MSBuild 浠嶆寜銆屽鐩爣銆嶅鐞嗭紝dotnet publish 浼氭姤
+      NETSDK1129锛堝繀椤绘樉寮忔寚瀹?-f锛夈€?      鎭㈠澶氬钩鍙版椂鎶婂畠鏀瑰洖澶嶆暟鐨?TargetFrameworks 鍗冲彲锛屼緥濡傦細
         <TargetFrameworks>net10.0-windows10.0.19041.0;net10.0-android</TargetFrameworks>
     -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
@@ -30,17 +23,17 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 
-    <!-- 应用信息 -->
+    <!-- 搴旂敤淇℃伅 -->
     <ApplicationTitle>MD</ApplicationTitle>
     <ApplicationId>cn.md.reader</ApplicationId>
     <ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <NeutralLanguage>zh-CN</NeutralLanguage>
 
-    <!-- Windows：非打包（unpackaged）模式，便于直接以 exe 运行 -->
+    <!-- Windows锛氶潪鎵撳寘锛坲npackaged锛夋ā寮忥紝渚夸簬鐩存帴浠?exe 杩愯 -->
     <WindowsPackageType>None</WindowsPackageType>
 
-    <!-- Android：发布 APK 而不是 AAB，便于侧载安装 -->
+    <!-- Android锛氬彂甯?APK 鑰屼笉鏄?AAB锛屼究浜庝晶杞藉畨瑁?-->
     <AndroidPackageFormat Condition="'$(TargetFramework)'=='net10.0-android' and '$(Configuration)'=='Release'">apk</AndroidPackageFormat>
     <AndroidLinkMode Condition="'$(TargetFramework)'=='net10.0-android' and '$(Configuration)'=='Release'">SdkOnly</AndroidLinkMode>
 
@@ -51,18 +44,15 @@
   </PropertyGroup>
 
   <!--
-    Windows 单文件自包含发布。
-    说明：MAUI 的 Windows 端依赖 Windows App SDK，走「自包含」才能得到
-    「双击即用、无需装运行时」的单个 exe。代价是产物较大（约 150~250 MB），
-    这是 WinUI 的原生依赖决定的；若接受用户预装 Windows App SDK 运行时，
-    可改用脚本里的 framework-dependent 模式，产物会小到十几 MB。
-  -->
+    Windows 鍗曟枃浠惰嚜鍖呭惈鍙戝竷銆?    璇存槑锛歁AUI 鐨?Windows 绔緷璧?Windows App SDK锛岃蛋銆岃嚜鍖呭惈銆嶆墠鑳藉緱鍒?    銆屽弻鍑诲嵆鐢ㄣ€佹棤闇€瑁呰繍琛屾椂銆嶇殑鍗曚釜 exe銆備唬浠锋槸浜х墿杈冨ぇ锛堢害 150~250 MB锛夛紝
+    杩欐槸 WinUI 鐨勫師鐢熶緷璧栧喅瀹氱殑锛涜嫢鎺ュ彈鐢ㄦ埛棰勮 Windows App SDK 杩愯鏃讹紝
+    鍙敼鐢ㄨ剼鏈噷鐨?framework-dependent 妯″紡锛屼骇鐗╀細灏忓埌鍗佸嚑 MB銆?  -->
   <PropertyGroup Condition="'$(TargetFramework)'=='net10.0-windows10.0.19041.0' and '$(Configuration)'=='Release'">
     <!--
-      ⚠ 不要用命令行的 RID 参数（-r）和自带运行时开关（「双横线 self-contained」）
-      来指定 Windows 的发布方式：它们是「全局」MSBuild 属性，会同时作用到
-      Android 目标上，使 Android 去还原 Microsoft.NETCore.App.Runtime.Mono.win-x64
-      并报 NU1102。这里用一个自定义属性 MdWindowsRuntime 承接，只在本 TFM 内生效：
+      鈿?涓嶈鐢ㄥ懡浠よ鐨?RID 鍙傛暟锛?r锛夊拰鑷甫杩愯鏃跺紑鍏筹紙銆屽弻妯嚎 self-contained銆嶏級
+      鏉ユ寚瀹?Windows 鐨勫彂甯冩柟寮忥細瀹冧滑鏄€屽叏灞€銆峂SBuild 灞炴€э紝浼氬悓鏃朵綔鐢ㄥ埌
+      Android 鐩爣涓婏紝浣?Android 鍘昏繕鍘?Microsoft.NETCore.App.Runtime.Mono.win-x64
+      骞舵姤 NU1102銆傝繖閲岀敤涓€涓嚜瀹氫箟灞炴€?MdWindowsRuntime 鎵挎帴锛屽彧鍦ㄦ湰 TFM 鍐呯敓鏁堬細
         dotnet publish ... -p:MdWindowsRuntime=win-arm64
     -->
     <RuntimeIdentifier Condition="'$(MdWindowsRuntime)'!=''">$(MdWindowsRuntime)</RuntimeIdentifier>
@@ -75,22 +65,48 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
-    <PublishTrimmed>false</PublishTrimmed>
+
+    <!--
+      鍏ㄨ鍒囷紙full trim锛夈€傚疄娴?75.2 MB 鈫?43.3 MB锛堢害 -42%锛夛紝
+      鍚姩銆侀槄璇汇€佽缃惤鐩樸€佷富棰樺垏鎹㈠潎閫氳繃瀹炶窇楠岃瘉銆?
+      鈿?涓ゆ潯纭€у墠鎻愶紝缂轰竴涓嶅彲锛?      1) System.Text.Json 蹇呴』璧?AppJsonContext 婧愮敓鎴愶紙Models/AppJsonContext.cs锛夈€?         瑁佸壀鐗堥粯璁ゅ叧闂弽灏勫簭鍒楀寲锛屾病鏈変笂涓嬫枃鏃?settings.json 浼氶潤榛樺啓涓嶈繘鍘汇€?      2) WindowsAppSDK 鐨?reg-free WinRT 娓呭崟蹇呴』鎸夈€屽崟鏂囦欢妯″紡銆嶉噸鏂扮敓鎴愩€?         鏃у疄鐜板閲忓鐢ㄤ笂涓€杞潪鍗曟枃浠剁殑 Manifests\\WindowsAppSDK.manifest锛?         娓呭崟閲屽彧鏈?22 涓枃浠讹紝鍚姩鏃朵細宕╁湪
+         Microsoft.UI.Xaml.Application.Start锛?x80040111锛夈€?         瑙佷笅闈㈢殑 MdRegenerateWindowsAppSdkManifest 鐩爣銆?
+      鍙﹀ app 鑷韩涓?Bootstrap.Net 蹇呴』 root 浣忥紙module initializer / 寮曞浠ｇ爜锛夛紝
+      瑙佷笅鏂?TrimmerRootAssembly銆?    -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+
+    <!-- 闈㈠悜妗岄潰闃呰鍣ㄧ殑鍐呭瓨鍙栬垗锛氬伐浣滅珯 GC锛屼笉涓哄悶鍚愰噺棰勭暀鍚庡彴鍫?-->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+
+    <!-- 瑁佸壀鏃剁殑 BCL 鐗规€у紑鍏筹細闃呰鍣ㄤ笉闇€瑕佽皟璇曞櫒/HTTP 璇婃柇浜嬩欢 -->
+    <DebuggerSupport>false</DebuggerSupport>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+
     <PublishReadyToRun>false</PublishReadyToRun>
   </PropertyGroup>
 
   <!--
-    ★ 兼容「扁平布局」的防御性排除 ★
+    鍗曟枃浠跺彂甯冨繀椤讳互 RedirectDlls=true 閲嶆柊鐢熸垚 Windows App SDK 鐨?reg-free
+    WinRT 娓呭崟銆傝繖涓?target 鐨勮緭鍑烘槸澧為噺澶嶇敤鐨勶紙Inputs=AppxManifest锛夛紝
+    涓嶄細鎰熺煡 PublishSingleFile / PublishTrimmed 鐨勫彉鍖栵紱涓€鏃﹀鐢ㄤ笂涓€杞殑
+    闈炲崟鏂囦欢娓呭崟锛宔xe 浼氬湪鍚姩鏃跺穿鍦?Microsoft.UI.Xaml.Application.Start銆?    姣忔鍗曟枃浠跺彂甯冨墠鍒犳帀涓棿娓呭崟锛屽己鍒堕噸寤恒€?  -->
+  <Target Name="MdRegenerateWindowsAppSdkManifest"
+          BeforeTargets="CreateWinRTRegistration"
+          Condition="'$(PublishSingleFile)'=='true' and '$(SelfContainedIntermediateOutputPath)'!=''">
+    <RemoveDir Directories="$(SelfContainedIntermediateOutputPath)Manifests" />
+  </Target>
 
-    本工程在本地的开发目录是 src/MD/，但 GitHub 仓库
-    （https://github.com/lan12138/Md）里是把本文件直接放在仓库根的扁平布局。
-    那种布局下，SDK 默认的 **/*.cs 通配会把 tests/ 下的自检源码
-    以及它自己的 obj/ 生成文件（MD.EncodingSelfCheck.AssemblyInfo.cs）一并吃进来，
-    于是和本工程生成的 MD.AssemblyInfo.cs 撞车，报 CS0579「特性重复」。
-
-    排除条目在标准布局（src/MD/）下不匹配任何文件，属于空操作，
-    因此两种布局共用同一份工程文件，不需要维护两个版本。
-  -->
+  <!--
+    鈽?鍏煎銆屾墎骞冲竷灞€銆嶇殑闃插尽鎬ф帓闄?鈽?
+    鏈伐绋嬪湪鏈湴鐨勫紑鍙戠洰褰曟槸 src/MD/锛屼絾 GitHub 浠撳簱
+    锛坔ttps://github.com/lan12138/Md锛夐噷鏄妸鏈枃浠剁洿鎺ユ斁鍦ㄤ粨搴撴牴鐨勬墎骞冲竷灞€銆?    閭ｇ甯冨眬涓嬶紝SDK 榛樿鐨?**/*.cs 閫氶厤浼氭妸 tests/ 涓嬬殑鑷婧愮爜
+    浠ュ強瀹冭嚜宸辩殑 obj/ 鐢熸垚鏂囦欢锛圡D.EncodingSelfCheck.AssemblyInfo.cs锛変竴骞跺悆杩涙潵锛?    浜庢槸鍜屾湰宸ョ▼鐢熸垚鐨?MD.AssemblyInfo.cs 鎾炶溅锛屾姤 CS0579銆岀壒鎬ч噸澶嶃€嶃€?
+    鎺掗櫎鏉＄洰鍦ㄦ爣鍑嗗竷灞€锛坰rc/MD/锛変笅涓嶅尮閰嶄换浣曟枃浠讹紝灞炰簬绌烘搷浣滐紝
+    鍥犳涓ょ甯冨眬鍏辩敤鍚屼竴浠藉伐绋嬫枃浠讹紝涓嶉渶瑕佺淮鎶や袱涓増鏈€?  -->
   <ItemGroup>
     <Compile Remove="tests/**" />
     <None Remove="tests/**" />
@@ -99,17 +115,48 @@
     <EmbeddedResource Remove="tests/**" />
   </ItemGroup>
 
-  <!-- 图标与启动图（矢量 SVG，由 MAUI Resizetizer 生成各平台尺寸） -->
+  <!-- 鍥炬爣涓庡惎鍔ㄥ浘锛堢煝閲?SVG锛岀敱 MAUI Resizetizer 鐢熸垚鍚勫钩鍙板昂瀵革級 -->
   <ItemGroup>
-    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#4F46E5" />
-    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#4F46E5" BaseSize="128,128" />
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" Color="#00000000" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#312E81" BaseSize="128,128" />
+  </ItemGroup>
+
+  <!--
+    瑁佸壀鏃朵繚浣?Windows App SDK 鐨勫紩瀵肩▼搴忋€?    杩欎袱涓▼搴忛泦娌℃湁琚笟鍔′唬鐮侀潤鎬佸紩鐢紙鍚姩鏃剁敱 Windows App SDK 鐨?    module initializer 璋冪敤锛夛紝ILLink 浼氭妸瀹冧滑褰撴垚姝讳唬鐮佸垹鎺夛紱鍒犳帀涔嬪悗
+    杩涚▼浼氬湪 Main 閲岀洿鎺ュ穿鍦?      Microsoft.UI.Xaml.Application.Start -> COMException 0x80040111
+    锛圕lassFactory 鏃犳硶渚涘簲璇锋眰鐨勭被锛夛紝鏃ュ織閮芥潵涓嶅強鍐欍€?    瀹炴祴锛氫笉 root 鏃?41 MB 鐨勩€屽叏瑁佸垏銆峞xe 涓€鍚姩灏遍€€锛宺oot 鍚庢甯搞€?  -->
+  <ItemGroup Condition="'$(PublishTrimmed)'=='true'">
+    <TrimmerRootAssembly Include="Microsoft.WindowsAppRuntime.Bootstrap.Net" />
+    <!--
+      搴旂敤鑷韩鐨?module initializer 閲屾湁 Windows App SDK 鐨?UndockedRegFreeWinRT
+      娉ㄥ唽璋冪敤锛堣 obj 鐢熸垚鐨?AutoInitialize锛夈€侷LLink 浼氭妸娌℃湁琚笟鍔′唬鐮佽皟鐢ㄧ殑
+      module initializer 褰撴垚姝讳唬鐮佸垹鎺夛紝缁撴灉鏄繘绋嬪惎鍔ㄦ椂 WinRT 绫绘病鏈夋敞鍐岋細
+        Microsoft.UI.Xaml.Application.Start -> COMException 0x80040111
+      鏁翠釜搴旂敤鍙湁 500 KB锛宺oot 鑷繁涓嶄細褰卞搷浣撶Н銆?    -->
+    <TrimmerRootAssembly Include="$(AssemblyName)" />
+
+    <!--
+      MAUI 的控件树 / DataTemplate / CollectionView 适配器大量依赖反射与
+      XAML 元数据。full trim 实测会出现「文件加载成功、正文全白」：
+      MdDocument 解析了 100+ 块，但 CollectionView 一个 BlockHost 都没创建。
+      root 住 MAUI 程序集，保留控件工厂与模板反射；实测体积只多约 1 MB
+      （41.2 MB → 42.3 MB），但正文能正常渲染。
+    -->
+    <TrimmerRootAssembly Include="Microsoft.Maui.Controls" />
+    <TrimmerRootAssembly Include="Microsoft.Maui" />
+    <TrimmerRootAssembly Include="Microsoft.Maui.Graphics" />
+    <TrimmerRootAssembly Include="Microsoft.Maui.Essentials" />
+    <TrimmerRootAssembly Include="Microsoft.Maui.Controls.Xaml" />
+    <TrimmerRootAssembly Include="Microsoft.Maui.Graphics.Win2D.WinUI.Desktop" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
     <PackageReference Include="Markdig" Version="0.41.3" />
-    <!-- GB18030 / GBK 等中文代码页由 .NET 10 基础类库自带（System.Text.Encoding.CodePages
-         已内置于共享框架），因此无需显式引用 NuGet 包。 -->
+    <!-- GB18030 / GBK 绛変腑鏂囦唬鐮侀〉鐢?.NET 10 鍩虹绫诲簱鑷甫锛圫ystem.Text.Encoding.CodePages
+         宸插唴缃簬鍏变韩妗嗘灦锛夛紝鍥犳鏃犻渶鏄惧紡寮曠敤 NuGet 鍖呫€?-->
   </ItemGroup>
 
 </Project>
+
+

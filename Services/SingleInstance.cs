@@ -33,6 +33,7 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using MD.Models;
 
 namespace MD.Services;
 
@@ -130,7 +131,7 @@ public static class SingleInstance
 
     private static bool Forward(string[] payload)
     {
-        var json = JsonSerializer.Serialize(payload);
+        var json = JsonSerializer.Serialize(payload, AppJsonContext.Default.StringArray);
         var bytes = Encoding.UTF8.GetBytes(json);
 
         // 第二个实例是刚被资源管理器启动的，**它**才有前台权限。
@@ -216,7 +217,7 @@ public static class SingleInstance
         string[] args;
         try
         {
-            args = JsonSerializer.Deserialize<string[]>(payload) ?? Array.Empty<string>();
+            args = JsonSerializer.Deserialize(payload, AppJsonContext.Default.StringArray) ?? Array.Empty<string>();
         }
         catch (Exception ex)
         {

@@ -1,9 +1,9 @@
-# MD · 跨平台 Markdown 阅读器
+﻿# MD · 跨平台 Markdown 阅读器
 
 > 用 **.NET 10 + .NET MAUI** 重写的「Typora 式」阅读体验：原生渲染、不内嵌浏览器内核、
 > 十万行文档流畅滚动、9 套内置主题、所有个性化设置落到一个 JSON 文件。
 
-> **当前交付目标只有 Windows**，产物是一个 71.7 MB 的单文件 `MD.exe`。
+> **当前交付目标只有 Windows**，产物是一个 42.3 MB 的单文件 `MD.exe`。
 > Android 目标已停用（手机端 Markdown 阅读器已足够多），代码与脚本保留，一行配置即可恢复；
 > 详见 [`PLATFORMS.md`](PLATFORMS.md)。
 
@@ -16,7 +16,7 @@ Typora 用 Electron：排版能力强，但代价是自带一整个 Chromium（�
 | | Typora（Electron） | **MD（.NET 10 + MAUI）** |
 | --- | --- | --- |
 | 渲染方式 | Chromium 内嵌浏览器 | **操作系统原生控件 + 原生滚动** |
-| 安装形态 | 安装包 / AppImage | **Windows 单文件 exe（71.7 MB），双击即用** |
+| 安装形态 | 安装包 / AppImage | **Windows 单文件 exe（42.3 MB），双击即用** |
 | 长文档滚动 | 依赖浏览器合成层，易掉帧 | 原生虚拟化列表，**只实例化可视区域的块** |
 | 主题 | CSS | **JSON（改配色不用重新编译）** |
 | 内存 | 数百 MB 起 | 与文档长度基本无关 |
@@ -36,8 +36,8 @@ Typora 用 Electron：排版能力强，但代价是自带一整个 Chromium（�
 
 - 左侧「大纲」：标题树，点击跳转；滚动正文时自动高亮并滚动到当前章节
 - 左侧「文件」：打开一个文件夹当工作区，树形列出其中的 `.md`，点一下就打开
-- 左侧「最近」：最近打开的文件，可单独移除
-- **标签页**：打开的文档以标签排列，可切换 / 逐个关闭；启动时恢复上次的标签与文件夹
+- 左侧「最近」：本次运行打开过的文件，可单独移除；**不写盘、下次启动清空**
+- **标签页**：打开的文档以标签排列，可切换 / 逐个关闭；启动时**不恢复**历史标签与文件夹
 - 顶部 2px 阅读进度条，底部状态栏显示编码 / 换行 / 字数 / 行数 / 当前章节 / 进度 / 当前主题
 
 **编辑**
@@ -51,11 +51,13 @@ Typora 用 Electron：排版能力强，但代价是自带一整个 Chromium（�
 
 - **单实例运行**：已在运行时，双击第二个 `.md` 会把文件送到当前窗口的新标签里，
   并把窗口提到前台；不会再起第二个进程（`--new-instance` 可强制开新进程）
-- 右键「用 MD 打开」/「用 MD 打开文件夹」
-- 出现在右键「打开方式」里，也能在系统「默认应用」列表中找到 MD
+- 右键「用 MD 打开」/「用 MD 打开文件夹」（只对 Markdown 文件出现）
+- 出现在右键「打开方式」里，也能在系统「默认应用」列表中找到 MD；注册只保留**一个** ProgId，
+  不再写 `Applications\MD.exe`，所以列表里不会出现两个 MD
 - 拖拽文件到窗口打开（Windows）
 - 命令行：`MD.exe D:\docs\readme.md`、`MD.exe --folder D:\docs`、`MD.exe --new-instance`，
-  以及可脚本化的 `--register-shell` / `--unregister-shell` / `--default-apps`
+  以及可脚本化的 `--register-shell` / `--unregister-shell` / `--default-apps` / `--diagnose`
+- 启动前检查 Windows 10 1809+；MauiApp/WinUI 初始化失败会弹中文错误框并给出日志路径
 
 **外观**
 
@@ -104,14 +106,14 @@ Typora 用 Electron：排版能力强，但代价是自带一整个 Chromium（�
 | macOS | ✅ Mac Catalyst | ✅ | ✅ |
 | Linux | ❌ | ✅ | ✅（Skia 后端） |
 | 官方支持 | ✅ 微软官方 | 社区 | 第三方 |
-| Windows 单文件 exe | ✅ **71.7 MB** | ✅（明显更小） | ⚠️ 依赖较多 |
+| Windows 单文件 exe | ✅ **42.3 MB** | ✅（明显更小） | ⚠️ 依赖较多 |
 
 **当时的结论是选 .NET MAUI**：需求里 Windows 与 Android 都是「必须有」，而 Avalonia 的
 Android 支持不在稳定线上、Uno 在桌面端仍是套壳 WinUI，只有 MAUI 对这两个平台都是一等公民。
 
 **后续变更**：Android 目标已停用（手机端 Markdown 阅读器已足够多）。这使选型的理由明显变弱 ——
 如果**同时**在意 Linux 支持或 exe 体积，Avalonia 更划算：它的 Windows 单文件可以做到
-二十几 MB，而 MAUI 必须打包 Windows App SDK 的原生依赖，自包含后是 71.7 MB。
+二十几 MB，而 MAUI 必须打包 Windows App SDK 的原生依赖，full trim 后是 42.3 MB。
 
 仍留在 MAUI 的理由只有两条，取舍如下：
 
@@ -245,7 +247,7 @@ dotnet run --project tests/MD.EncodingSelfCheck -c Release
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build\publish-windows.ps1
-# 产物：dist\windows-win-x64-single\MD.exe（71.7 MB，目录下只有这一个文件）
+# 产物：dist\windows-win-x64-single\MD.exe（42.3 MB，目录下只有这一个文件）
 ```
 
 等价的原始命令：
@@ -281,11 +283,11 @@ powershell -ExecutionPolicy Bypass -File build\publish-android.ps1
 
 同目录下还有 `md.log`（运行日志）与 `themes/`（用户自定义主题）。
 
-内容示例（窗口尺寸 / 位置 / 最大化、主题、排版、最近文件、工作区、每个文件的阅读进度）：
+内容示例（v2：**不含任何文件打开历史**）：
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "appearance": {
     "themeId": "github-dark",
     "darkThemeId": "github-dark",
@@ -299,22 +301,10 @@ powershell -ExecutionPolicy Bypass -File build\publish-android.ps1
   "reading": {
     "fontSizeDelta": 0, "lineHeightDelta": 0, "contentWidthMode": "auto",
     "focusMode": false, "statusBarVisible": true, "syncOutline": true,
-    "codeLineNumbers": false, "loadImages": true,
-    "scrollPositions": { "D:\\docs\\readme.md": 0.4231 },
-    "lastSeen": { "D:\\docs\\readme.md": 639020000000000000 }
+    "codeLineNumbers": false, "loadImages": true
   },
-  "files": {
-    "lastFile": "D:\\docs\\readme.md",
-    "recent": [ { "path": "D:\\docs\\readme.md", "name": "readme.md", "openedAt": "2026-09-21T19:40:00+08:00" } ],
-    "maxRecent": 20
-  },
-  "workspace": {
-    "folderPath": "D:\\docs",
-    "folderRecursive": true,
-    "sidebarTab": "outline",
-    "openTabs": [ "D:\\docs\\readme.md", "D:\\docs\\guide.md" ],
-    "activeTab": "D:\\docs\\guide.md"
-  }
+  "files": { "maxRecent": 20 },
+  "workspace": { "folderRecursive": true, "sidebarTab": "outline" }
 }
 ```
 
@@ -322,12 +312,14 @@ powershell -ExecutionPolicy Bypass -File build\publish-android.ps1
 
 | 字段 | 说明 |
 | --- | --- |
+| `version` | 配置格式版本；v1 → v2 迁移时会清掉旧的历史字段并重写一次 |
 | `reading.contentWidthMode` | 正文列宽：`auto`（跟随主题舒适宽度并按窗口自适应放宽）/ `narrow`(700) / `standard`(900) / `wide`(1150) / `full`（铺满）。**不是**百分比数值 |
-| `reading.scrollPositions` | 文件路径 → 滚动进度（0~1），用于「记住阅读进度」 |
 | `workspace.sidebarTab` | 侧栏当前页签：`outline` / `recent` / `folder` |
-| `workspace.openTabs` | 打开文件夹后已打开的标签页（按显示顺序），下次启动原样恢复 |
-| `workspace.activeTab` | 当前激活的标签（未打开文件时也为单个文件路径，用于启动时自动重开） |
 | `window.x` / `window.y` | `double?`，`null` = 尚无记录。首次运行且从未关闭过窗口时**整个键被省略**，正常关闭一次后即出现 |
+
+以下字段只存在内存中，**不会出现在 settings.json**：`files.recent`、`files.lastFile`、
+`workspace.folderPath`、`workspace.openTabs`、`workspace.activeTab`、
+`reading.scrollPositions`、`reading.lastSeen`。这是 v2 的隐私约定：文件打开记录不落盘。
 
 > `window.x` / `window.y` 在**首次运行且从未关闭过窗口**时会被省略
 > （模型里是 `double?`，`null` 表示「尚无记录，由系统决定位置」，序列化时跳过）。
@@ -364,8 +356,8 @@ powershell -ExecutionPolicy Bypass -File build\publish-android.ps1
 
 平台与体积：
 
-- Windows 单文件体积 71.7 MB（WinUI / Windows App SDK 的原生依赖决定），
-  这是平台约束而非实现问题；在意体积的话 Avalonia 可做到二十几 MB
+- Windows 单文件体积 **42.3 MB**（full trim + 单文件压缩后）；剩余部分是 WinUI /
+  Windows App SDK 原生依赖，继续压只能换 UI 栈（Avalonia 可到二十几 MB）
 - 只交付 Windows：Android 目标已停用（可一行配置恢复），Linux 不在 .NET MAUI 支持范围内
 
 功能边界：
@@ -377,8 +369,8 @@ powershell -ExecutionPolicy Bypass -File build\publish-android.ps1
   这是系统安全设计。本程序的做法是注册干净的 ProgId + 右键菜单，然后**引导去系统设置页**
 - 窗口位置只在**正常关闭**时记录；被任务管理器强制结束则会丢失（尺寸/主题不受影响）
 - 程序默认单实例。要用两个窗口并排对比文档，得加 `--new-instance`
-  —— 此时两个进程共用同一份 `settings.json`，窗口几何信息与会话状态会互相覆盖
-  （文档内容不受影响，但「恢复上次标签」的结果取决于哪个窗口最后关闭）
+  —— 此时两个进程共用同一份 `settings.json`，窗口几何信息会互相覆盖；
+  文件打开历史不再落盘，所以不会再出现「恢复上次标签」互相覆盖的问题
 - 窗口位置做过防呆：不可能出现「窗口跑到屏幕外、看得见进程却摸不到窗口」的状态。
   相关机制（拒绝 Win32 的 `-32000` 哨兵、按真实矩形确认可达性）见
   [`PLATFORMS.md`](PLATFORMS.md) 的「窗口为什么会跑到屏幕外」
@@ -392,8 +384,11 @@ powershell -ExecutionPolicy Bypass -File build\publish-android.ps1
 
 2. **滚动进度不生效**——`CollectionView.Scrolled` 事件在当前 MAUI 10 / Windows 组合下
    **完全不触发**（`md.log` 里一条 `[滚动]` 都没有）。后果：
-   状态栏百分比、进度条、大纲自动高亮都不更新，`settings.json` 的
-   `reading.scrollPositions` 始终为空 →「记住阅读进度」实际失效。
-   已加限流日志便于后续排查（见 [`PLATFORMS.md`](PLATFORMS.md)）。
+   状态栏百分比、进度条、大纲自动高亮都不更新。阅读位置只在本次运行内记录，
+   不跨启动保存（v2 起也不写 `settings.json`）。已加限流日志便于后续排查
+   （见 [`PLATFORMS.md`](PLATFORMS.md)）。
 
 > 这两条都已写进 `docs/PLATFORMS.md` 的「已知缺陷」一节，并在 `md.log` 里留有痕迹。
+
+
+

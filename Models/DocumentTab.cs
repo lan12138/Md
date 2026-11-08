@@ -51,6 +51,9 @@ public sealed class DocumentTab
     /// <summary>当前视口中心的块下标。</summary>
     public int CenterIndex { get; set; }
 
+    /// <summary>最后激活时间（仅本次运行，用于限制同时驻留的已解析文档数量）。</summary>
+    public DateTime LastAccessUtc { get; set; } = DateTime.UtcNow;
+
     /// <summary>编码显示名（如 UTF-8 / GB18030 / UTF-8-BOM）。</summary>
     public string EncodingDisplay => Format.DisplayName.ToUpperInvariant();
 

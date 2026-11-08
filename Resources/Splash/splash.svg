@@ -1,7 +1,10 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <g transform="translate(256,256) scale(0.78) translate(-264.5,-252)" fill="none" stroke="#FFFFFF" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M104 356 V176 L176 262 L248 176 V356"/>
-    <path d="M352 168 V330"/>
-    <path d="M300 282 L352 336 L404 282"/>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision">
+  <!-- 启动图：与 appicon 同源的 D + 箭头；箭头用启动底色“挖”出来 -->
+  <g transform="translate(256 256) scale(0.78) translate(-256 -256)">
+    <path fill="#FFFFFF" fill-rule="evenodd"
+          d="M120 104 H252 C340 104 408 170 408 256 C408 342 340 408 252 408 H120 Z
+             M180 164 H252 C310 164 350 204 350 256 C350 308 310 348 252 348 H180 Z"/>
+    <path d="M100 432 L310 240" fill="none" stroke="#312E81" stroke-width="46" stroke-linecap="round"/>
+    <path fill="#312E81" d="M382 158 L286 190 L334 244 Z"/>
   </g>
 </svg>

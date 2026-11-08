@@ -28,6 +28,17 @@ public sealed class SettingsService : IDisposable
         _debounce = new System.Timers.Timer(500) { AutoReset = false };
         _debounce.Elapsed += (_, _) => FlushNow();
         Load();
+
+        // v1 → v2：旧配置里可能还留着 lastFile / recent / openTabs / activeTab /
+        // folderPath / scrollPositions。这些字段在新模型里已标 [JsonIgnore]，
+        // 但磁盘上的旧 JSON 不会自己消失；这里主动重写一次，把历史记录清干净。
+        if (_current.Version < 2)
+        {
+            _current.Version = 2;
+            _dirty = true;
+            FlushNow();
+            DiagnosticsLog.Write("settings.json 已迁移到 v2：清除旧的文件打开历史");
+        }
     }
 
     /// <summary>当前设置（直接修改后调用 <see cref="Touch"/> 标记待保存）。</summary>
@@ -50,7 +61,7 @@ public sealed class SettingsService : IDisposable
             }
 
             var json = File.ReadAllText(FilePath, System.Text.Encoding.UTF8);
-            var loaded = JsonSerializer.Deserialize<AppSettings>(json, ThemeJson.Options);
+            var loaded = JsonSerializer.Deserialize(json, AppJsonContext.Default.AppSettings);
             _current = loaded is null ? new AppSettings() : Migrate(loaded);
         }
         catch (Exception ex)
@@ -122,7 +133,7 @@ public sealed class SettingsService : IDisposable
             try
             {
                 TrimRecent();
-                var json = JsonSerializer.Serialize(_current, ThemeJson.Options);
+                var json = JsonSerializer.Serialize(_current, AppJsonContext.Default.AppSettings);
 
                 var path = FilePath;
                 var tmp = path + ".tmp";
@@ -198,8 +209,8 @@ public sealed class SettingsService : IDisposable
         if (string.IsNullOrWhiteSpace(path))
             return;
 
+        // 只在本次运行内维护「最近打开」，不落盘（见 FileSettings.Recent）。
         var files = _current.Files;
-        files.LastFile = path;
         files.Recent.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
         files.Recent.Insert(0, new RecentFile
         {
@@ -207,13 +218,11 @@ public sealed class SettingsService : IDisposable
             Name = Path.GetFileName(path),
             OpenedAt = DateTimeOffset.Now,
         });
-        Touch();
     }
 
     public void RemoveRecent(string path)
     {
         _current.Files.Recent.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
-        Touch();
     }
 
     public void RememberScroll(string path, double progress)
@@ -223,7 +232,7 @@ public sealed class SettingsService : IDisposable
 
         _current.Reading.ScrollPositions[path] = Math.Clamp(progress, 0, 1);
         _current.Reading.LastSeen[path] = DateTime.UtcNow.Ticks;
-        Touch();
+        // 不写盘：阅读位置属于文件历史，滚动时也不该每 500ms 触发一次序列化。
     }
 
     public double GetScroll(string path)

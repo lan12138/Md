@@ -9,7 +9,7 @@
 
 | 平台 | 状态 | 框架 | 产物 |
 | --- | --- | --- | --- |
-| **Windows 10 1809+ / 11** | ✅ **当前唯一交付目标** | .NET MAUI（WinUI 3 / Windows App SDK） | 单文件 `MD.exe`（71.7 MB），双击即用 |
+| **Windows 10 1809+ / 11** | ✅ **当前唯一交付目标** | .NET MAUI（WinUI 3 / Windows App SDK） | 单文件 `MD.exe`（42.3 MB，full trim），双击即用 |
 | Android | ⏸️ **已停用**（代码保留） | .NET MAUI | 恢复方式见第四节 |
 | macOS | ⏸️ 未启用 | .NET MAUI（Mac Catalyst） | 需 macOS + Xcode |
 | Linux | ❌ 官方不支持 | 需另建 Avalonia 前端 | 见第五节 |
@@ -22,7 +22,7 @@
 
 Android 退出后，选型的理由确实变弱了：如果**同时**想要 Linux，或者在意 exe 体积，
 Avalonia 会是更划算的选择（单文件可以做到二十几 MB，而 MAUI 因为要打包
-Windows App SDK 原生依赖，自包含后是 71.7 MB —— 这是平台约束，不是实现问题）。
+Windows App SDK 原生依赖，full trim 后仍是 42.3 MB —— 这是平台约束，不是实现问题）。
 
 仍然留在 MAUI 的理由只有两条：一是 WinUI 3 的原生观感与系统字体/滚动条天然一致；
 二是将来若要恢复移动端，不需要重写 UI 层。**如果这两条都不重要，迁移到 Avalonia 更优。**
@@ -56,20 +56,43 @@ dotnet run   --project src/MD/MD.csproj
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build\publish-windows.ps1
-# 产物：dist\windows-win-x64-single\MD.exe     （实测 71.7 MB，目录下只有这一个文件）
+# 产物：dist\windows-win-x64-single\MD.exe     （实测 42.3 MB，目录下只有这一个文件）
 ```
 
 两种模式：
 
 | 模式 | 参数 | 体积 | 对用户的要求 |
 | --- | --- | --- | --- |
-| **single**（默认） | `-Mode single` | 实测 **71.7 MB** | **无**，双击即用 |
+| **single**（默认） | `-Mode single` | 实测 **42.3 MB**（full trim） | **无**，双击即用 |
 | framework | `-Mode framework` | 约 5~20 MB | 需预装 [.NET 10 桌面运行时](https://dotnet.microsoft.com/download/dotnet/10.0) + Windows App SDK 运行时 |
 
 体积来自 Windows App SDK 的原生依赖（`Microsoft.WindowsAppRuntime.*.dll`、WebView2 loader、
 DirectX 相关），不是托管代码膨胀 —— 单文件自包含模式把整套运行时一起打包了。
 
-换架构：`-p:MdWindowsRuntime=win-arm64`。
+换架构：`-Runtime win-x86`（32 位老机器）或 `-Runtime win-arm64`（原生 ARM64）。
+脚本内部转成 `-p:MdWindowsRuntime=...`，仍然是单文件。
+
+### full trim 的三条硬性前提（踩过坑）
+
+`PublishTrimmed=true` / `TrimMode=full` 把 75.2 MB 压到 42.3 MB，但必须同时满足：
+
+1. **System.Text.Json 走源生成**（`Models/AppJsonContext.cs`）。
+   裁剪版默认关闭反射序列化；没有 `JsonTypeInfo` 时 `settings.json` 会静默写不进去。
+2. **Windows App SDK 的 reg-free WinRT 清单必须按单文件模式重新生成**。
+   这个清单是增量复用的，不会感知 `PublishSingleFile` / `PublishTrimmed` 的变化；
+   一旦复用上一轮非单文件清单，exe 会在
+   `Microsoft.UI.Xaml.Application.Start` 崩 `0x80040111`（ClassFactory 无法供应请求的类）。
+   `MD.csproj` 里的 `MdRegenerateWindowsAppSdkManifest` 目标会在每次单文件发布前删掉中间清单。
+
+3. **MAUI 控件程序集必须 root 住**。full trim 后会出现「文件加载成功、正文全白」：
+   `MdDocument` 解析了 100+ 块，但 `CollectionView` 一个 `BlockHost` 都不创建。
+   在 `MD.csproj` 里对 `Microsoft.Maui.Controls` / `Microsoft.Maui` /
+   `Microsoft.Maui.Graphics` / `Microsoft.Maui.Essentials` /
+   `Microsoft.Maui.Controls.Xaml` / `Microsoft.Maui.Graphics.Win2D.WinUI.Desktop`
+   加 `TrimmerRootAssembly`，体积只多约 1 MB，正文恢复正常。
+
+除此之外，`MD` 与 `Microsoft.WindowsAppRuntime.Bootstrap.Net` 用 `TrimmerRootAssembly` 保住
+（module initializer / 引导代码），否则同样会在 WinRT 激活处崩。
 
 涉及的关键 MSBuild 属性（见 `MD.csproj` 的 Release 条件块）：
 
@@ -116,6 +139,7 @@ DirectX 相关），不是托管代码膨胀 —— 单文件自包含模式把�
   | `--register-shell` | 注册右键「打开方式」与默认应用条目，然后退出（退出码 0/1） |
   | `--unregister-shell` | 移除上面注册的全部内容，然后退出 |
   | `--default-apps` | 打开系统「默认应用」设置页，然后退出 |
+  | `--diagnose` | 生成 `%APPDATA%\MD\diagnose.txt`（系统/架构/路径/运行时），然后退出 |
 
   三个 `--*-shell` 开关在 `Services/ShellCommandLine.cs` 里处理，位置在
   `MauiProgram.CreateMauiApp` 的**最前面** —— 那时还没建窗口，所以脚本化调用不会闪窗。
@@ -187,10 +211,10 @@ Windows 8 起，文件类型的默认关联由 `UserChoice` 保护，其值带�
 
 | 做什么 | 做法 |
 | --- | --- |
-| 出现在右键「打开方式」里 | 注册 ProgId `MD.Markdown` + 各扩展名的 `OpenWithProgids` + `Applications\MD.exe\SupportedTypes` |
-| 出现在「默认应用」列表里 | 注册 `Software\MD\Capabilities` 并登记到 `RegisteredApplications` |
-| 加右键菜单项 | 写 `*\shell\MD`（"用 MD 打开"）与 `Directory\shell\MD`（"用 MD 打开文件夹"） |
-| **设为默认** | **只能引导用户**去系统设置页确认一次，程序无权代改 |
+| 出现在右键「打开方式」里 | 注册 ProgId `MD.Markdown` + 各扩展名的 `OpenWithProgids`；**不再**写 `Applications\MD.exe`（避免两个 MD 条目） |
+| 出现在「默认应用」列表里 | 注册 `Software\MD\Capabilities`（含 `ApplicationIcon`）并登记到 `RegisteredApplications` |
+| 加右键菜单项 | 写 `SystemFileAssociations\.md\shell\MD`（只对 Markdown 文件出现）与 `Directory\shell\MD` |
+| **设为默认** | **只能引导用户**去系统设置页确认一次，程序无权代改；优先调官方关联 UI，失败再退到 `ms-settings:defaultapps` |
 
 ### 标题栏为什么必须绕过 AppWindowTitleBar
 
@@ -354,7 +378,7 @@ Avalonia 支持 Linux / Windows / macOS，API 风格与 WPF 接近。**约 60% �
 | 最大化状态恢复 | ✅ | — | ⚪ |
 | 打开链接 / 定位文件 | ✅ | ✅（浏览器） | ✅ |
 | 自定义主题目录 | ✅ | ✅ | ✅ |
-| 单文件分发 | ✅（71.7 MB） | ✅（APK） | ⚪ |
+| 单文件分发 | ✅（42.3 MB） | ✅（APK） | ⚪ |
 
 ---
 
@@ -383,3 +407,6 @@ Avalonia 支持 Linux / Windows / macOS，API 风格与 WPF 接近。**约 60% �
 
 3. **`dotnet workload install` 报 `0x00000652`**：Windows Installer 被别的进程占用。
    等安装程序退出后重跑即可，不会损坏已有工作负载。
+
+
+

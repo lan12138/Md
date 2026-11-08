@@ -133,15 +133,15 @@ public sealed class WelcomeView : Grid
                 EndPoint = new Point(1, 1),
                 GradientStops =
                 {
-                    new GradientStop { Color = Color.FromArgb("#4F46E5"), Offset = 0f },
-                    new GradientStop { Color = Color.FromArgb("#6D28D9"), Offset = 0.55f },
+                    new GradientStop { Color = Color.FromArgb("#1E1B4B"), Offset = 0f },
+                    new GradientStop { Color = Color.FromArgb("#4F46E5"), Offset = 0.56f },
                     new GradientStop { Color = Color.FromArgb("#0EA5E9"), Offset = 1f },
                 },
             },
             Content = new Label
             {
-                Text = "M↓",
-                FontSize = 30,
+                Text = "D",
+                FontSize = 34,
                 FontAttributes = FontAttributes.Bold,
                 FontFamily = _ctx.MonoFont,
                 TextColor = Colors.White,

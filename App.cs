@@ -11,6 +11,7 @@
 //                   恢复屏幕外坐标会让窗口完全不可见（实测 -32000）
 // -----------------------------------------------------------------------------
 
+using MD.Models;
 using MD.Services;
 using MD.Views;
 
@@ -33,7 +34,18 @@ public sealed class App : Application
             : "未记录（由系统决定）";
         DiagnosticsLog.Write($"CreateWindow: 主题={settings.Current.Appearance.ThemeId} 尺寸={windowSettings.Width}x{windowSettings.Height} 位置={pos} 最大化={windowSettings.Maximized}");
 
-        var page = new ReaderPage();
+        ReaderPage page;
+        try
+        {
+            page = new ReaderPage();
+        }
+        catch (Exception ex)
+        {
+            // 主界面构造失败（常见于 WinUI / 主题资源异常）时，不要只留一个闪退：
+            // 用一个最小页面把异常和日志路径显示出来，程序仍然可以正常关闭。
+            DiagnosticsLog.Write("ReaderPage 构造失败", ex);
+            return CreateErrorWindow(ex, windowSettings);
+        }
 
         var window = new Window(page)
         {
@@ -83,5 +95,54 @@ public sealed class App : Application
         };
 
         return window;
+    }
+
+    private static Window CreateErrorWindow(Exception ex, WindowSettings windowSettings)
+    {
+        var stack = new VerticalStackLayout
+        {
+            Spacing = 10,
+            Padding = new Thickness(28, 24),
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            MaximumWidthRequest = 760,
+        };
+
+        stack.Add(new Label
+        {
+            Text = "MD 启动失败",
+            FontSize = 22,
+            FontAttributes = FontAttributes.Bold,
+        });
+        stack.Add(new Label
+        {
+            Text = ex.Message,
+            FontSize = 13,
+        });
+        stack.Add(new Label
+        {
+            Text = $"日志：{DiagnosticsLog.FilePath ?? "（不可用）"}",
+            FontSize = 11.5,
+            LineBreakMode = LineBreakMode.CharacterWrap,
+        });
+        stack.Add(new Label
+        {
+            Text = "可以把它连同 %APPDATA%\\MD\\md.log 一起反馈；" +
+                   "也可以运行 MD.exe --diagnose 生成系统诊断文件。",
+            FontSize = 11.5,
+        });
+
+        var openLog = new Button { Text = "打开日志目录", HorizontalOptions = LayoutOptions.Start };
+        openLog.Clicked += (_, _) => PlatformLauncher.OpenFolder(AppPaths.ConfigRoot);
+        stack.Add(openLog);
+
+        var content = new ScrollView { Content = stack };
+        var page = new ContentPage { Content = content };
+        return new Window(page)
+        {
+            Title = "MD · 启动失败",
+            Width = windowSettings.Width > 200 ? windowSettings.Width : 900,
+            Height = windowSettings.Height > 200 ? windowSettings.Height : 640,
+        };
     }
 }
